@@ -12,7 +12,6 @@ const navigation = [
   { name: 'Signal Validator', href: '/signal-validator' },
   { name: 'Clusters', href: '/clusters' },
   { name: 'Opportunities', href: '/opportunities' },
-  { name: 'Settings', href: '/settings' },
 ];
 
 export default function DashboardLayout({
@@ -69,17 +68,30 @@ export default function DashboardLayout({
               </Link>
             ))}
             {user?.isAdmin && (
-              <Link
-                href="/admin"
-                className={cn(
-                  'px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap',
-                  pathname === '/admin'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-gray-600 hover:text-gray-900'
-                )}
-              >
-                Admin
-              </Link>
+              <>
+                <Link
+                  href="/settings"
+                  className={cn(
+                    'px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap',
+                    pathname === '/settings'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-gray-600 hover:text-gray-900'
+                  )}
+                >
+                  Settings
+                </Link>
+                <Link
+                  href="/admin"
+                  className={cn(
+                    'px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap',
+                    pathname === '/admin'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-gray-600 hover:text-gray-900'
+                  )}
+                >
+                  Admin
+                </Link>
+              </>
             )}
           </div>
         </div>
