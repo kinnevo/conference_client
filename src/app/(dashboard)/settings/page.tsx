@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { useAreas } from '@/hooks/useAreas';
+import { usePrompts } from '@/hooks/usePrompts';
 import {
   MapPin,
   Radio,
@@ -15,11 +16,20 @@ import {
   Trash2,
   Check,
   X,
+  Save,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -28,7 +38,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Area } from '@/types';
+import { Area, Prompt } from '@/types';
 import { cn } from '@/lib/utils';
 
 const TAB_AREAS = 'areas';
@@ -42,13 +52,30 @@ export default function SettingsPage() {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
   const { areas, isLoading: areasLoading, error: areasError, updateArea, deleteArea } = useAreas();
+  const { prompts, isLoading: promptsLoading, error: promptsError, updatePrompt } = usePrompts();
 
+  // Areas state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Area | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [actionError, setActionError] = useState('');
+
+  // Prompts state
+  const [selectedPromptId, setSelectedPromptId] = useState<string>('');
+  const [promptContent, setPromptContent] = useState('');
+  const [originalContent, setOriginalContent] = useState('');
+  const [isPromptSaving, setIsPromptSaving] = useState(false);
+  const [promptError, setPromptError] = useState('');
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [pendingPromptId, setPendingPromptId] = useState<string>('');
+
+  // Track if prompt content has been modified
+  const isPromptDirty = promptContent !== originalContent;
+
+  // Get currently selected prompt
+  const selectedPrompt = prompts.find(p => p.id === selectedPromptId);
 
   useEffect(() => {
     if (authLoading) return;
@@ -58,6 +85,77 @@ export default function SettingsPage() {
     }
   }, [user?.isAdmin, authLoading, router]);
 
+  // Auto-select first prompt when prompts load
+  useEffect(() => {
+    if (prompts.length > 0 && !selectedPromptId) {
+      const firstPrompt = prompts[0];
+      setSelectedPromptId(firstPrompt.id);
+      setPromptContent(firstPrompt.content);
+      setOriginalContent(firstPrompt.content);
+    }
+  }, [prompts, selectedPromptId]);
+
+  function handlePromptSelect(promptId: string) {
+    // If there are unsaved changes, show confirmation dialog
+    if (isPromptDirty) {
+      setPendingPromptId(promptId);
+      setShowUnsavedDialog(true);
+      return;
+    }
+
+    // No unsaved changes, switch directly
+    switchToPrompt(promptId);
+  }
+
+  function switchToPrompt(promptId: string) {
+    const prompt = prompts.find(p => p.id === promptId);
+    if (prompt) {
+      setSelectedPromptId(promptId);
+      setPromptContent(prompt.content);
+      setOriginalContent(prompt.content);
+      setPromptError('');
+    }
+  }
+
+  function handleDiscardChanges() {
+    setShowUnsavedDialog(false);
+    if (pendingPromptId) {
+      switchToPrompt(pendingPromptId);
+      setPendingPromptId('');
+    }
+  }
+
+  function handleCancelSwitch() {
+    setShowUnsavedDialog(false);
+    setPendingPromptId('');
+  }
+
+  async function handleSaveAndSwitch() {
+    await savePromptContent();
+    setShowUnsavedDialog(false);
+    if (pendingPromptId) {
+      switchToPrompt(pendingPromptId);
+      setPendingPromptId('');
+    }
+  }
+
+  async function savePromptContent() {
+    if (!selectedPromptId || !isPromptDirty) return;
+
+    setIsPromptSaving(true);
+    setPromptError('');
+
+    try {
+      const updated = await updatePrompt(selectedPromptId, promptContent);
+      setOriginalContent(updated.content);
+    } catch (err: any) {
+      setPromptError(err.message || 'Failed to save prompt');
+    } finally {
+      setIsPromptSaving(false);
+    }
+  }
+
+  // Areas functions
   function startEdit(area: Area) {
     setEditingId(area.id);
     setEditName(area.name);
@@ -286,14 +384,75 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value={TAB_PROMPTS}>
+        <TabsContent value={TAB_PROMPTS} className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle>Prompts</CardTitle>
-              <CardDescription>Manage prompts.</CardDescription>
+              <CardTitle>System Prompts</CardTitle>
+              <CardDescription>
+                Edit system prompts used throughout the application.
+              </CardDescription>
             </CardHeader>
-            <CardContent>
-              <p className="text-sm text-gray-600">Coming soon.</p>
+            <CardContent className="space-y-4">
+              {promptsLoading ? (
+                <p className="text-sm text-gray-600">Loading prompts...</p>
+              ) : promptsError ? (
+                <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm">{promptsError}</div>
+              ) : prompts.length === 0 ? (
+                <p className="text-sm text-gray-600">No prompts configured.</p>
+              ) : (
+                <>
+                  {/* Dropdown and Save button row */}
+                  <div className="flex items-center gap-3">
+                    <Select value={selectedPromptId} onValueChange={handlePromptSelect}>
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Select a prompt" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {prompts.map((prompt) => (
+                          <SelectItem key={prompt.id} value={prompt.id}>
+                            {prompt.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      onClick={savePromptContent}
+                      disabled={!isPromptDirty || isPromptSaving}
+                      className="flex items-center gap-2"
+                    >
+                      <Save className="h-4 w-4" />
+                      {isPromptSaving ? 'Saving...' : 'Save'}
+                    </Button>
+                  </div>
+
+                  {/* Description */}
+                  {selectedPrompt?.description && (
+                    <p className="text-sm text-gray-500">{selectedPrompt.description}</p>
+                  )}
+
+                  {/* Error message */}
+                  {promptError && (
+                    <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm">{promptError}</div>
+                  )}
+
+                  {/* Unsaved indicator */}
+                  {isPromptDirty && (
+                    <div className="bg-yellow-50 text-yellow-700 p-2 rounded-md text-sm flex items-center gap-2">
+                      <span className="w-2 h-2 bg-yellow-500 rounded-full" />
+                      You have unsaved changes
+                    </div>
+                  )}
+
+                  {/* Editor panel */}
+                  <Textarea
+                    value={promptContent}
+                    onChange={(e) => setPromptContent(e.target.value)}
+                    placeholder="Enter prompt content..."
+                    className="min-h-[300px] font-mono text-sm"
+                    disabled={isPromptSaving}
+                  />
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -311,7 +470,7 @@ export default function SettingsPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Delete confirmation dialog */}
+      {/* Delete area confirmation dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && closeDeleteConfirm()}>
         <DialogContent showClose={!isDeleting}>
           <DialogHeader>
@@ -330,6 +489,29 @@ export default function SettingsPage() {
             </Button>
             <Button variant="destructive" onClick={confirmDelete} disabled={isDeleting}>
               {isDeleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unsaved changes confirmation dialog */}
+      <Dialog open={showUnsavedDialog} onOpenChange={(open) => !open && handleCancelSwitch()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Unsaved Changes</DialogTitle>
+            <DialogDescription>
+              You have unsaved changes to the current prompt. What would you like to do?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 sm:gap-0">
+            <Button variant="outline" onClick={handleCancelSwitch}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDiscardChanges}>
+              Discard
+            </Button>
+            <Button onClick={handleSaveAndSwitch} disabled={isPromptSaving}>
+              {isPromptSaving ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -29,6 +29,15 @@ export interface Area {
   updated_at: string;
 }
 
+export interface Prompt {
+  id: string;
+  name: string;
+  content: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RegisterData {
   email: string;
   password: string;
