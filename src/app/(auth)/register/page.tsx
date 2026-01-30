@@ -51,7 +51,10 @@ export default function RegisterPage() {
         attendeeType: formData.attendeeType,
       });
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Registration failed. Please try again.');
+      const msg = err.response?.data?.error ?? err.message ?? 'Registration failed. Please try again.';
+      const details = err.response?.data?.details;
+      const detailMsg = Array.isArray(details) && details[0]?.msg ? details[0].msg : null;
+      setError(detailMsg || msg);
     } finally {
       setIsLoading(false);
     }
