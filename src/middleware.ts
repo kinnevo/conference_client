@@ -3,27 +3,28 @@ import type { NextRequest } from 'next/server';
 
 const publicRoutes = ['/', '/login', '/register', '/register/success'];
 
+/**
+ * Middleware for route protection
+ *
+ * Since tokens are stored in sessionStorage (per-tab), the middleware can only
+ * do basic protection. It blocks unauthenticated access to protected routes
+ * but does NOT redirect away from auth pages - that's handled client-side
+ * where we can check the actual sessionStorage.
+ */
 export function middleware(request: NextRequest) {
-  const token = request.cookies.get('accessToken')?.value;
+  const hasSessionCookie = request.cookies.get('hasSession')?.value;
   const pathname = request.nextUrl.pathname;
 
   const isPublicRoute = publicRoutes.includes(pathname);
-  const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
 
-  // Redirect authenticated users away from auth pages
-  if (isAuthRoute && token) {
-    return NextResponse.redirect(new URL('/select-area', request.url));
-  }
-
-  // Redirect home to select-area if authenticated
-  if (pathname === '/' && token) {
-    return NextResponse.redirect(new URL('/select-area', request.url));
-  }
-
-  // Protect dashboard routes
-  if (!isPublicRoute && !token) {
+  // Only protect dashboard routes - require presence cookie
+  // If no cookie, definitely not authenticated in any tab
+  if (!isPublicRoute && !hasSessionCookie) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
+
+  // Don't redirect away from auth pages here - let client-side handle it
+  // because only client can check this specific tab's sessionStorage
 
   return NextResponse.next();
 }

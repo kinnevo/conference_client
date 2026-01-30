@@ -14,12 +14,17 @@ export default function AdminPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!user?.isAdmin) {
+    if (!user) {
       setError('Admin access required');
       setIsLoading(false);
       return;
     }
-
+    if (!user.isAdmin) {
+      setError('Admin access required');
+      setIsLoading(false);
+      return;
+    }
+    setError('');
     fetchData();
   }, [user]);
 

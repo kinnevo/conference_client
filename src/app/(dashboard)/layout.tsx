@@ -3,12 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
+import { RequireAuth } from '@/components/require-auth';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 const navigation = [
+  { name: 'Home', href: '/dashboard' },
   { name: 'Select Area', href: '/select-area' },
-  { name: 'Dashboard', href: '/dashboard' },
   { name: 'Signal Validator', href: '/signal-validator' },
   { name: 'Clusters', href: '/clusters' },
   { name: 'Opportunities', href: '/opportunities' },
@@ -22,15 +23,8 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { user, logout, isLoading } = useAuth();
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p>Loading...</p>
-      </div>
-    );
-  }
-
   return (
+    <RequireAuth>
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white border-b">
@@ -100,5 +94,6 @@ export default function DashboardLayout({
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">{children}</main>
     </div>
+    </RequireAuth>
   );
 }

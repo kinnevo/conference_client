@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function SelectAreaPage() {
-  const { areas, isLoading, error, createArea, deleteArea } = useAreas();
+  const { areas, isLoading, error, createArea } = useAreas();
   const [newAreaName, setNewAreaName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState('');
@@ -26,16 +26,6 @@ export default function SelectAreaPage() {
       setCreateError(err.message);
     } finally {
       setIsCreating(false);
-    }
-  }
-
-  async function handleDeleteArea(id: string, name: string) {
-    if (!confirm(`Delete "${name}"?`)) return;
-
-    try {
-      await deleteArea(id);
-    } catch (err: any) {
-      alert(err.message);
     }
   }
 
@@ -92,16 +82,9 @@ export default function SelectAreaPage() {
                 {areas.map((area) => (
                   <div
                     key={area.id}
-                    className="flex items-center justify-between p-3 border rounded-md bg-white"
+                    className="flex items-center p-3 border rounded-md bg-white"
                   >
                     <span className="text-sm font-medium">{area.name}</span>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleDeleteArea(area.id, area.name)}
-                    >
-                      Delete
-                    </Button>
                   </div>
                 ))}
               </div>

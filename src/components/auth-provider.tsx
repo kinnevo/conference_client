@@ -2,9 +2,15 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import Cookies from 'js-cookie';
 import api from '@/lib/api';
 import { connectSocket, disconnectSocket } from '@/lib/socket';
+import {
+  getAccessToken,
+  getRefreshToken,
+  setTokens,
+  clearSession,
+  hasSession
+} from '@/lib/session';
 import { User, RegisterData, LoginData } from '@/types';
 
 interface AuthContextType {
@@ -28,7 +34,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function checkAuth() {
-    const token = Cookies.get('accessToken');
+    // Check sessionStorage for this tab's token
+    const token = getAccessToken();
     if (!token) {
       setIsLoading(false);
       return;
@@ -39,8 +46,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user);
       connectSocket();
     } catch {
-      Cookies.remove('accessToken');
-      Cookies.remove('refreshToken');
+      // Token invalid - clear this tab's session
+      clearSession();
     } finally {
       setIsLoading(false);
     }
@@ -49,8 +56,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function login(loginData: LoginData) {
     const { data } = await api.post('/api/auth/login', loginData);
 
-    Cookies.set('accessToken', data.accessToken, { expires: 1/96 }); // 15 min
-    Cookies.set('refreshToken', data.refreshToken, { expires: 7 }); // 7 days
+    // Store tokens in sessionStorage (tab-specific)
+    setTokens(data.accessToken, data.refreshToken);
 
     setUser(data.user);
     connectSocket();
@@ -64,12 +71,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function logout() {
     try {
-      await api.post('/api/auth/logout', {
-        refreshToken: Cookies.get('refreshToken')
-      });
+      const refreshToken = getRefreshToken();
+      // Only revoke this specific refresh token, not all user sessions
+      await api.post('/api/auth/logout', { refreshToken });
     } finally {
-      Cookies.remove('accessToken');
-      Cookies.remove('refreshToken');
+      // Clear only this tab's session
+      clearSession();
       setUser(null);
       disconnectSocket();
       router.push('/');

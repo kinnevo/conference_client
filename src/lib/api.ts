@@ -1,18 +1,23 @@
 import axios from 'axios';
-import Cookies from 'js-cookie';
+import {
+  getAccessToken,
+  getRefreshToken,
+  setAccessToken,
+  setRefreshToken,
+  clearSession
+} from './session';
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL,
-  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Request interceptor - attach access token
+// Request interceptor - attach access token from sessionStorage
 api.interceptors.request.use(
   (config) => {
-    const token = Cookies.get('accessToken');
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -31,20 +36,25 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        const refreshToken = Cookies.get('refreshToken');
+        const refreshToken = getRefreshToken();
+        if (!refreshToken) {
+          throw new Error('No refresh token');
+        }
+
         const { data } = await axios.post(
           `${process.env.NEXT_PUBLIC_API_URL}/api/auth/refresh`,
           { refreshToken }
         );
 
-        Cookies.set('accessToken', data.accessToken, { expires: 1/96 }); // 15 min
-        originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
+        // Update both tokens in sessionStorage
+        setAccessToken(data.accessToken);
+        setRefreshToken(data.refreshToken);
 
+        originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(originalRequest);
       } catch {
-        // Refresh failed - clear tokens and redirect to login
-        Cookies.remove('accessToken');
-        Cookies.remove('refreshToken');
+        // Refresh failed - clear session and redirect to login
+        clearSession();
         if (typeof window !== 'undefined') {
           window.location.href = '/login';
         }
