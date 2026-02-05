@@ -126,3 +126,18 @@ export interface SignalCard {
   validationResult: ValidationResult | null;
   createdAt: Date;
 }
+
+export interface Cluster {
+  id: string;
+  title: string;
+  insight: string;
+  strength: 'high' | 'medium' | 'low';
+  signalIds: string[];
+  patternTags: string[];
+  opportunityPreview: {
+    whoIsStruggling: string;
+    desiredOutcome: string;
+    whatBreaks: string;
+    costOfInaction: string;
+  };
+}
