@@ -1,4 +1,4 @@
-# Conference Registration System - Client
+# SparkBridge - Client
 
 Next.js 14 client application with real-time updates via Socket.IO.
 

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { useAreas } from '@/hooks/useAreas';
 import { usePrompts } from '@/hooks/usePrompts';
+import { useLLMProviders } from '@/hooks/useLLMProviders';
 import {
   MapPin,
   Radio,
@@ -17,6 +18,7 @@ import {
   Check,
   X,
   Save,
+  Brain,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -38,7 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Area, Prompt } from '@/types';
+import { Area, Prompt, LLMProvider, LLMTestResult } from '@/types';
 import { cn } from '@/lib/utils';
 
 const TAB_AREAS = 'areas';
@@ -47,12 +49,21 @@ const TAB_CLUSTERS = 'clusters';
 const TAB_OPPORTUNITIES = 'opportunities';
 const TAB_PROMPTS = 'prompts';
 const TAB_USERS = 'users';
+const TAB_LLM = 'llm';
 
 export default function SettingsPage() {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
   const { areas, isLoading: areasLoading, error: areasError, updateArea, deleteArea } = useAreas();
   const { prompts, isLoading: promptsLoading, error: promptsError, updatePrompt } = usePrompts();
+  const {
+    providers,
+    isLoading: llmLoading,
+    error: llmError,
+    configureProvider,
+    testProvider,
+    activateProvider,
+  } = useLLMProviders();
 
   // Areas state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -73,6 +84,20 @@ export default function SettingsPage() {
 
   // Track if prompt content has been modified
   const isPromptDirty = promptContent !== originalContent;
+
+  // LLM Providers state
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider | null>(null);
+  const [showConfigDialog, setShowConfigDialog] = useState(false);
+  const [configFormData, setConfigFormData] = useState({
+    api_key: '',
+    model: '',
+    max_tokens: 4000,
+    temperature: 0.7,
+    base_url: ''
+  });
+  const [isConfiguring, setIsConfiguring] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<LLMTestResult | null>(null);
 
   // Get currently selected prompt
   const selectedPrompt = prompts.find(p => p.id === selectedPromptId);
@@ -246,6 +271,10 @@ export default function SettingsPage() {
           <TabsTrigger value={TAB_USERS} className="flex items-center gap-2">
             <Users className="h-4 w-4" />
             <span className="hidden sm:inline">Users</span>
+          </TabsTrigger>
+          <TabsTrigger value={TAB_LLM} className="flex items-center gap-2">
+            <Brain className="h-4 w-4" />
+            <span className="hidden sm:inline">LLM</span>
           </TabsTrigger>
         </TabsList>
 
@@ -468,6 +497,103 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value={TAB_LLM} className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>LLM Providers</CardTitle>
+              <CardDescription>
+                Configure AI providers for generating insights and analyzing data
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {llmLoading && <p className="text-sm text-gray-600">Loading providers...</p>}
+              {llmError && <p className="text-red-600 text-sm">{llmError}</p>}
+
+              {providers.map(provider => (
+                <div
+                  key={provider.id}
+                  className="border rounded-lg p-4 space-y-3"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="font-semibold flex items-center gap-2">
+                        {provider.display_name}
+                        {provider.is_active && (
+                          <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                            Active
+                          </span>
+                        )}
+                      </h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Model: {provider.model || 'Not configured'}
+                      </p>
+                      {provider.api_key_masked && (
+                        <p className="text-sm text-gray-600">
+                          API Key: {provider.api_key_masked}
+                        </p>
+                      )}
+                      {provider.last_test_at && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Last tested: {new Date(provider.last_test_at).toLocaleString()}
+                          {' '}
+                          ({provider.last_test_status === 'success' ? (
+                            <span className="text-green-600">Success</span>
+                          ) : (
+                            <span className="text-red-600">Failed</span>
+                          )})
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedProvider(provider);
+                          setConfigFormData({
+                            api_key: '',
+                            model: provider.model || '',
+                            max_tokens: provider.max_tokens || 4000,
+                            temperature: provider.temperature || 0.7,
+                            base_url: provider.base_url || ''
+                          });
+                          setShowConfigDialog(true);
+                          setTestResult(null);
+                        }}
+                      >
+                        Configure
+                      </Button>
+                      {provider.is_enabled && !provider.is_active && (
+                        <Button
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              await activateProvider(provider.id);
+                            } catch (err: any) {
+                              alert(err.message);
+                            }
+                          }}
+                        >
+                          Activate
+                        </Button>
+                      )}
+                      {provider.is_active && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled
+                        >
+                          Active
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Delete area confirmation dialog */}
@@ -512,6 +638,126 @@ export default function SettingsPage() {
             </Button>
             <Button onClick={handleSaveAndSwitch} disabled={isPromptSaving}>
               {isPromptSaving ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* LLM Provider configuration dialog */}
+      <Dialog open={showConfigDialog} onOpenChange={setShowConfigDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Configure {selectedProvider?.display_name}</DialogTitle>
+            <DialogDescription>
+              Enter your API credentials and settings
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">API Key *</label>
+              <Input
+                type="password"
+                value={configFormData.api_key}
+                onChange={(e) => setConfigFormData(prev => ({
+                  ...prev,
+                  api_key: e.target.value
+                }))}
+                placeholder="Enter API key"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Model *</label>
+              <Input
+                value={configFormData.model}
+                onChange={(e) => setConfigFormData(prev => ({
+                  ...prev,
+                  model: e.target.value
+                }))}
+                placeholder="e.g., gpt-4o"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Max Tokens</label>
+              <Input
+                type="number"
+                value={configFormData.max_tokens}
+                onChange={(e) => setConfigFormData(prev => ({
+                  ...prev,
+                  max_tokens: parseInt(e.target.value) || 4000
+                }))}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Temperature (0-2)</label>
+              <Input
+                type="number"
+                step="0.1"
+                min="0"
+                max="2"
+                value={configFormData.temperature}
+                onChange={(e) => setConfigFormData(prev => ({
+                  ...prev,
+                  temperature: parseFloat(e.target.value) || 0.7
+                }))}
+              />
+            </div>
+
+            {testResult && (
+              <div className={`p-3 rounded ${
+                testResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+              }`}>
+                <p className="font-medium">{testResult.message}</p>
+                {testResult.error && (
+                  <p className="text-sm mt-1">{testResult.error}</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowConfigDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!selectedProvider || !configFormData.api_key || !configFormData.model) {
+                  alert('API key and model are required');
+                  return;
+                }
+
+                setIsConfiguring(true);
+                setTestResult(null);
+
+                try {
+                  await configureProvider(selectedProvider.id, configFormData);
+                  setIsTesting(true);
+
+                  const result = await testProvider(selectedProvider.id);
+                  setTestResult(result);
+
+                  if (result.success) {
+                    setTimeout(() => {
+                      setShowConfigDialog(false);
+                      setTestResult(null);
+                    }, 2000);
+                  }
+                } catch (err: any) {
+                  alert(err.message);
+                } finally {
+                  setIsConfiguring(false);
+                  setIsTesting(false);
+                }
+              }}
+              disabled={isConfiguring || isTesting}
+            >
+              {isTesting ? 'Testing...' : isConfiguring ? 'Saving...' : 'Save & Test'}
             </Button>
           </DialogFooter>
         </DialogContent>

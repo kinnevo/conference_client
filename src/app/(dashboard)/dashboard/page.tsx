@@ -9,7 +9,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>Welcome</CardTitle>
-            <CardDescription>Conference Registration System</CardDescription>
+            <CardDescription>SparkBridge</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-gray-600">

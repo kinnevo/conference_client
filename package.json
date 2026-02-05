@@ -1,7 +1,7 @@
 {
   "name": "conference_client",
   "version": "1.0.0",
-  "description": "Conference Registration System - Client Application",
+  "description": "SparkBridge - Client Application",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -14,7 +14,7 @@ export default function RegisterSuccessPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-gray-600">
-            Welcome to the Conference Registration System! Your account has been successfully created.
+            Welcome to SparkBridge! Your account has been successfully created.
           </p>
           <p className="text-sm text-gray-600">
             You can now sign in and start exploring the platform.

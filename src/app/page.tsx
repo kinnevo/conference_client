@@ -37,7 +37,7 @@ export default function HomePage() {
       <div className="container mx-auto px-4 py-16">
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold text-gray-900 mb-4">
-            Conference Registration System
+            SparkBridge
           </h1>
           <p className="text-xl text-gray-600 mb-8">
             Modern platform for conference registration and management

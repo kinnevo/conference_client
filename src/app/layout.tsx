@@ -6,7 +6,7 @@ import { AuthProvider } from '@/components/auth-provider'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Conference Registration System',
+  title: 'SparkBridge',
   description: 'Modern conference registration and management platform',
 }
 

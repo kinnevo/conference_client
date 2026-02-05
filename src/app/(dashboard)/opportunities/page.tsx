@@ -6,7 +6,7 @@ export default function OpportunitiesPage() {
       <h1 className="text-3xl font-bold mb-6">Opportunities</h1>
       <Card>
         <CardHeader>
-          <CardTitle>Conference Opportunities</CardTitle>
+          <CardTitle>Opportunities</CardTitle>
           <CardDescription>Discover networking and engagement opportunities</CardDescription>
         </CardHeader>
         <CardContent>

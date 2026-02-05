@@ -30,7 +30,7 @@ export default function DashboardLayout({
       <header className="bg-white border-b">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold">Conference System</h1>
+            <h1 className="text-2xl font-bold">SparkBridge</h1>
             <div className="flex items-center gap-4">
               <span className="text-sm text-gray-600">
                 {user?.firstName} {user?.lastName}
