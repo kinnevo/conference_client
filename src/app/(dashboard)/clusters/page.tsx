@@ -273,12 +273,12 @@ export default function ClustersPage() {
           {/* Field of Interest */}
           <div>
             <label className="text-sm font-medium mb-2 block">Field of Interest</label>
-            <Select value={selectedField} onValueChange={setSelectedField}>
+            <Select value={selectedField || 'all'} onValueChange={(v) => setSelectedField(v === 'all' ? '' : v)}>
               <SelectTrigger>
-                <SelectValue placeholder="All fields" />
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All fields</SelectItem>
+                <SelectItem value="all">All fields</SelectItem>
                 {fields.map(field => (
                   <SelectItem key={field} value={field}>{field}</SelectItem>
                 ))}

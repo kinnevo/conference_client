@@ -130,10 +130,11 @@ export function useSignalValidator(): UseSignalValidatorReturn {
   const saveSignal = useCallback(() => {
     if (!currentValidationResult || !user) return;
 
+    const newId = crypto.randomUUID();
     const title = description.split(' ').slice(0, 6).join(' ') + '...';
 
     const newSignal: SignalCard = {
-      id: crypto.randomUUID(),
+      id: newId,
       title,
       description,
       fieldOfInterest,
@@ -144,6 +145,7 @@ export function useSignalValidator(): UseSignalValidatorReturn {
     };
 
     setSignals(prev => [newSignal, ...prev]);
+    setActiveSignalId(newId);
   }, [currentValidationResult, description, fieldOfInterest, user]);
 
   const updateSignal = useCallback(() => {
