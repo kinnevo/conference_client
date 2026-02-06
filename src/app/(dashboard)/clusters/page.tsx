@@ -582,7 +582,7 @@ export default function ClustersPage() {
                     No matching signals found. The referenced signals may have been deleted.
                   </p>
                 ) : (
-                  clusterSignals.map(signal => {
+                  clusterSignals.map((signal: SignalCard) => {
                     const isExpanded = expandedSignals.has(signal.id);
                     return (
                       <div key={signal.id} className="border border-gray-200 rounded-lg p-4">
@@ -597,7 +597,7 @@ export default function ClustersPage() {
                         {/* Signal type chips */}
                         {signal.validationResult?.signalTypes && signal.validationResult.signalTypes.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-2">
-                            {signal.validationResult.signalTypes.map((type, idx) => (
+                            {signal.validationResult.signalTypes.map((type: string, idx: number) => (
                               <span key={idx} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
                                 {type}
                               </span>
@@ -612,7 +612,7 @@ export default function ClustersPage() {
                               <div>
                                 <p className="text-xs font-medium text-gray-500 mb-1">Reasoning</p>
                                 <ul className="space-y-1">
-                                  {signal.validationResult.reasoning.map((point, idx) => (
+                                  {signal.validationResult.reasoning.map((point: string, idx: number) => (
                                     <li key={idx} className="text-xs text-gray-600 flex gap-1.5">
                                       <span className="text-indigo-600">•</span>
                                       <span>{point}</span>
@@ -625,7 +625,7 @@ export default function ClustersPage() {
                               <div>
                                 <p className="text-xs font-medium text-gray-500 mb-1">Metrics to Track</p>
                                 <ul className="space-y-1">
-                                  {signal.validationResult.metrics.map((metric, idx) => (
+                                  {signal.validationResult.metrics.map((metric: string, idx: number) => (
                                     <li key={idx} className="text-xs text-gray-600 flex gap-1.5">
                                       <span className="text-indigo-600">•</span>
                                       <span>{metric}</span>

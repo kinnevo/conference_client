@@ -142,7 +142,7 @@ function ideaToPlainText(idea: Idea): string {
 function exportIdeaAsPdf(idea: Idea): void {
   const text = ideaToPlainText(idea);
   const doc = new jsPDF({ format: 'a4', unit: 'mm' });
-  const pageW = doc.getPageWidth();
+  const pageW = doc.internal.pageSize.getWidth();
   const margin = 20;
   const maxW = pageW - margin * 2;
   const lineHeight = 6;
