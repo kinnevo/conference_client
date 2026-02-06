@@ -3,9 +3,28 @@
 import { useState, useEffect, useCallback } from 'react';
 import { SignalCard, ValidationResult } from '@/types';
 import { useAuth } from '@/components/auth-provider';
+import api from '@/lib/api';
+
+function getSessionId(): string {
+  const storage = getStorage();
+  let id = storage.getItem('signal-validator-session-id');
+  if (!id) {
+    id = crypto.randomUUID();
+    storage.setItem('signal-validator-session-id', id);
+  }
+  return id;
+}
+
+type SyncStatus = 'idle' | 'pending' | 'success' | 'error';
 
 const STORAGE_KEY_SIGNALS = 'signal-validator-signals';
 const STORAGE_KEY_SESSION = 'signal-validator-session';
+
+/** Use sessionStorage so each tab/session has its own state (no shared memory across sessions). */
+function getStorage(): Storage {
+  if (typeof window === 'undefined') return null as unknown as Storage;
+  return sessionStorage;
+}
 
 function isValidResult(r: any): r is ValidationResult {
   return r && r.outcome && Array.isArray(r.reasoning) && Array.isArray(r.signalTypes)
@@ -26,6 +45,7 @@ interface UseSignalValidatorReturn {
   // UI State
   activeSignalId: string | null;
   deleteId: string | null;
+  syncStatus: SyncStatus;
 
   // Actions
   setFieldOfInterest: (field: string) => void;
@@ -59,10 +79,19 @@ export function useSignalValidator(): UseSignalValidatorReturn {
   const [activeSignalId, setActiveSignalId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [hasRestored, setHasRestored] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
 
-  // Load from localStorage on mount
+  // Auto-reset sync status after 3 seconds
   useEffect(() => {
-    const savedSignals = localStorage.getItem(STORAGE_KEY_SIGNALS);
+    if (syncStatus === 'idle' || syncStatus === 'pending') return;
+    const timer = setTimeout(() => setSyncStatus('idle'), 3000);
+    return () => clearTimeout(timer);
+  }, [syncStatus]);
+
+  // Load from sessionStorage on mount (per-tab; cleared on login so each session starts fresh)
+  useEffect(() => {
+    const storage = getStorage();
+    const savedSignals = storage.getItem(STORAGE_KEY_SIGNALS);
     if (savedSignals) {
       try {
         const parsed = JSON.parse(savedSignals);
@@ -75,7 +104,7 @@ export function useSignalValidator(): UseSignalValidatorReturn {
       }
     }
 
-    const savedSession = localStorage.getItem(STORAGE_KEY_SESSION);
+    const savedSession = storage.getItem(STORAGE_KEY_SESSION);
     if (savedSession) {
       try {
         const session = JSON.parse(savedSession);
@@ -86,23 +115,23 @@ export function useSignalValidator(): UseSignalValidatorReturn {
           setCurrentValidationResult(session.currentValidationResult);
         }
       } catch (e) {
-        localStorage.removeItem(STORAGE_KEY_SESSION);
+        storage.removeItem(STORAGE_KEY_SESSION);
       }
     }
 
     setHasRestored(true);
   }, []);
 
-  // Save signals to localStorage when they change
+  // Save signals to sessionStorage when they change (per-tab)
   useEffect(() => {
     if (!hasRestored) return;
-    localStorage.setItem(STORAGE_KEY_SIGNALS, JSON.stringify(signals));
+    getStorage().setItem(STORAGE_KEY_SIGNALS, JSON.stringify(signals));
   }, [hasRestored, signals]);
 
-  // Save session state to localStorage when it changes
+  // Save session state to sessionStorage when it changes (per-tab)
   useEffect(() => {
     if (!hasRestored) return;
-    localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify({
+    getStorage().setItem(STORAGE_KEY_SESSION, JSON.stringify({
       fieldOfInterest,
       description,
       activeSignalId,
@@ -146,16 +175,32 @@ export function useSignalValidator(): UseSignalValidatorReturn {
 
     setSignals(prev => [newSignal, ...prev]);
     setActiveSignalId(newId);
+
+    // Persist to DB with status feedback
+    setSyncStatus('pending');
+    api.post('/api/signals', {
+      id: newId,
+      sessionId: getSessionId(),
+      fieldOfInterest,
+      title,
+      description,
+      qualificationLevel: currentValidationResult.outcome,
+      validationResult: currentValidationResult
+    })
+      .then(() => setSyncStatus('success'))
+      .catch(() => setSyncStatus('error'));
   }, [currentValidationResult, description, fieldOfInterest, user]);
 
   const updateSignal = useCallback(() => {
     if (!activeSignalId || !currentValidationResult) return;
 
+    const title = description.split(' ').slice(0, 6).join(' ') + '...';
+
     setSignals(prev => prev.map(signal =>
       signal.id === activeSignalId
         ? {
             ...signal,
-            title: description.split(' ').slice(0, 6).join(' ') + '...',
+            title,
             description,
             fieldOfInterest,
             qualificationLevel: currentValidationResult.outcome,
@@ -163,6 +208,20 @@ export function useSignalValidator(): UseSignalValidatorReturn {
           }
         : signal
     ));
+
+    // Persist to DB with status feedback
+    setSyncStatus('pending');
+    api.post('/api/signals', {
+      id: activeSignalId,
+      sessionId: getSessionId(),
+      fieldOfInterest,
+      title,
+      description,
+      qualificationLevel: currentValidationResult.outcome,
+      validationResult: currentValidationResult
+    })
+      .then(() => setSyncStatus('success'))
+      .catch(() => setSyncStatus('error'));
   }, [activeSignalId, currentValidationResult, description, fieldOfInterest]);
 
   const deleteSignal = useCallback((id: string) => {
@@ -171,6 +230,12 @@ export function useSignalValidator(): UseSignalValidatorReturn {
       clearForm();
     }
     setDeleteId(null);
+
+    // Delete from DB with status feedback
+    setSyncStatus('pending');
+    api.delete(`/api/signals/${id}`)
+      .then(() => setSyncStatus('success'))
+      .catch(() => setSyncStatus('error'));
   }, [activeSignalId]);
 
   const loadSignal = useCallback((signal: SignalCard) => {
@@ -185,6 +250,8 @@ export function useSignalValidator(): UseSignalValidatorReturn {
     setFieldOfInterest('');
     setDescription('');
     setCurrentValidationResult(null);
+    setValidationHistory([]);
+    setHistoryIndex(0);
   }, []);
 
   return {
@@ -201,6 +268,7 @@ export function useSignalValidator(): UseSignalValidatorReturn {
     // UI State
     activeSignalId,
     deleteId,
+    syncStatus,
 
     // Actions
     setFieldOfInterest,

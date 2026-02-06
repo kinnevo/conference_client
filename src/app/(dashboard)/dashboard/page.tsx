@@ -1,4 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { SparkBridgeLogo } from '@/components/sparkbridge-logo';
 
 export default function DashboardPage() {
   return (
@@ -9,7 +10,9 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>Welcome</CardTitle>
-            <CardDescription>SparkBridge</CardDescription>
+            <div className="text-sm text-muted-foreground">
+              <SparkBridgeLogo logoHeight={48} textSize="sm" />
+            </div>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-gray-600">

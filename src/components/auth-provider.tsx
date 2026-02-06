@@ -9,7 +9,7 @@ import {
   getRefreshToken,
   setTokens,
   clearSession,
-  hasSession
+  clearSignalValidatorState,
 } from '@/lib/session';
 import { User, RegisterData, LoginData } from '@/types';
 
@@ -59,6 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Store tokens in sessionStorage (tab-specific)
     setTokens(data.accessToken, data.refreshToken);
 
+    // Each login is a new session: clear signal validator so user starts fresh
+    clearSignalValidatorState();
+
     setUser(data.user);
     connectSocket();
     router.push('/select-area');
@@ -75,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Only revoke this specific refresh token, not all user sessions
       await api.post('/api/auth/logout', { refreshToken });
     } finally {
-      // Clear only this tab's session
+      clearSignalValidatorState();
       clearSession();
       setUser(null);
       disconnectSocket();

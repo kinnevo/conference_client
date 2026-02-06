@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { RequireAuth } from '@/components/require-auth';
 import { Button } from '@/components/ui/button';
+import { SparkBridgeLogo } from '@/components/sparkbridge-logo';
 import { cn } from '@/lib/utils';
 
 const navigation = [
@@ -13,6 +14,7 @@ const navigation = [
   { name: 'Signal Validator', href: '/signal-validator' },
   { name: 'Clusters', href: '/clusters' },
   { name: 'Opportunities', href: '/opportunities' },
+  { name: 'Ideas', href: '/ideas' },
 ];
 
 export default function DashboardLayout({
@@ -26,14 +28,17 @@ export default function DashboardLayout({
   return (
     <RequireAuth>
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
+      {/* Header - left: Logo + SparkBridge; right: "Speaker: Name" (based on attendeeType) */}
       <header className="bg-white border-b">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold">SparkBridge</h1>
+            <SparkBridgeLogo logoHeight={64} textSize="md" />
             <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">
-                {user?.firstName} {user?.lastName}
+              <span className="text-sm text-gray-700">
+                {[
+                  user?.isAdmin ? 'Admin' : user?.attendeeType === 'speaker' ? 'Speaker' : user?.attendeeType === 'sponsor' ? 'Sponsor' : user?.attendeeType === 'vip' ? 'VIP' : 'Participant',
+                  [user?.firstName, user?.lastName].filter(Boolean).join(' ')
+                ].join(': ')}
               </span>
               <Button variant="outline" size="sm" onClick={logout}>
                 Logout

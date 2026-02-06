@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { SparkBridgeLogo } from '@/components/sparkbridge-logo';
 
 export default function HomePage() {
   const { user, isLoading } = useAuth();
@@ -36,9 +37,9 @@ export default function HomePage() {
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
       <div className="container mx-auto px-4 py-16">
         <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold text-gray-900 mb-4">
-            SparkBridge
-          </h1>
+          <div className="flex justify-center mb-4">
+            <SparkBridgeLogo logoHeight={128} textSize="lg" />
+          </div>
           <p className="text-xl text-gray-600 mb-8">
             Modern platform for conference registration and management
           </p>

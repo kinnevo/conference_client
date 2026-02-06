@@ -1,9 +1,12 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from 'react';
 import { useAuth } from '@/components/auth-provider';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
+import { useAreas } from '@/hooks/useAreas';
+import { useSignals } from '@/hooks/useSignals';
+import { useClusters } from '@/hooks/useClusters';
 import { SignalCard, Cluster } from '@/types';
 import {
   Network,
@@ -12,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -30,16 +34,87 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
-const STORAGE_KEY_SIGNALS = 'signal-validator-signals';
+/** Try to parse AI result as JSON; return object or null. Handles both object and array (first element). */
+function parseAiResultAsJson(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      const first = parsed[0];
+      return typeof first === 'object' && first !== null && !Array.isArray(first) ? (first as Record<string, unknown>) : null;
+    }
+    return !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Human-readable label for a key. */
+function labelForKey(key: string): string {
+  const labels: Record<string, string> = {
+    title: 'Title',
+    clusterTitle: 'Cluster title',
+    opportunityTitle: 'Opportunity title',
+    summary: 'Summary',
+    outcome: 'Outcome',
+    reasoning: 'Reasoning',
+    whoIsStruggling: 'Who is struggling',
+    desiredOutcome: 'Desired outcome',
+    whatBreaks: 'What breaks today',
+    costOfInaction: 'Cost of inaction',
+    opportunity: 'Opportunity',
+    description: 'Description',
+    insights: 'Insights',
+    recommendations: 'Recommendations',
+    nextSteps: 'Next steps',
+    score: 'Score',
+    scoring: 'Scoring'
+  };
+  return labels[key] ?? key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()).trim();
+}
+
+/** Render a value for display (string, array, or nested object) — human-readable, no raw JSON. */
+function renderValue(value: unknown): ReactNode {
+  if (value == null) return '—';
+  if (typeof value === 'string') return <span className="whitespace-pre-wrap">{value}</span>;
+  if (Array.isArray(value)) {
+    return (
+      <ul className="list-disc list-inside mt-1 space-y-0.5 text-gray-800">
+        {value.map((item, i) => (
+          <li key={i}>
+            {typeof item === 'object' && item !== null
+              ? (Array.isArray(item) ? item.join(', ') : Object.values(item as Record<string, unknown>).join(' — '))
+              : String(item)}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (typeof value === 'object') {
+    return (
+      <div className="space-y-2 mt-1 text-gray-800">
+        {Object.entries(value as Record<string, unknown>).map(([k, v]) => (
+          <div key={k}>
+            <span className="font-medium text-gray-600">{labelForKey(k)}: </span>
+            {typeof v === 'string' ? v : Array.isArray(v) ? v.map((x, i) => <span key={i}>{String(x)}{i < v.length - 1 ? '; ' : ''}</span>) : String(v)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return String(value);
+}
 
 export default function ClustersPage() {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
+  const { areas } = useAreas();
+  const { signals: dbSignals, isLoading: signalsLoading } = useSignals({ enabled: user?.isAdmin });
+  const { clusters, isLoading: clustersLoading, error: clustersError, saveClusters, updateClusterTitle } = useClusters();
 
   // Data
-  const [signals, setSignals] = useState<SignalCard[]>([]);
-  const [clusters, setClusters] = useState<Cluster[]>([]);
-  const [selectedCluster, setSelectedCluster] = useState<Cluster | null>(null);
+  const [selectedCluster, setSelectedCluster] = useState<(Cluster & { signalSnapshots?: any[] }) | null>(null);
 
   // Controls
   const [selectedField, setSelectedField] = useState('');
@@ -53,28 +128,31 @@ export default function ClustersPage() {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
+  const [convertUserRequest, setConvertUserRequest] = useState('');
+  const [convertAiResult, setConvertAiResult] = useState('');
+  const [isGeneratingOpportunity, setIsGeneratingOpportunity] = useState(false);
+  const [convertError, setConvertError] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // Normalize DB signals to SignalCard shape for clustering
+  const signals = useMemo((): SignalCard[] => {
+    return dbSignals.map(s => ({
+      id: s.id,
+      title: s.title || '',
+      description: s.description || '',
+      fieldOfInterest: s.field_of_interest || '',
+      userId: s.user_id,
+      qualificationLevel: (s.qualification_level as SignalCard['qualificationLevel']) || 'valid',
+      validationResult: s.validation_result,
+      createdAt: new Date(s.created_at)
+    }));
+  }, [dbSignals]);
 
   // Auth guard
   useEffect(() => {
     if (authLoading) return;
     if (!user) router.replace('/login');
   }, [user, authLoading, router]);
-
-  // Load signals from localStorage
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_SIGNALS);
-      if (saved) {
-        setSignals(JSON.parse(saved).map((s: any) => ({
-          ...s,
-          createdAt: new Date(s.createdAt)
-        })));
-      }
-    } catch (e) {
-      console.error('Failed to load signals:', e);
-    }
-  }, []);
 
   // Focus rename input when entering rename mode
   useEffect(() => {
@@ -83,13 +161,7 @@ export default function ClustersPage() {
     }
   }, [isRenaming]);
 
-  // Derive unique fields from signals
-  const fields = useMemo(() => {
-    const fieldSet = new Set(signals.map(s => s.fieldOfInterest).filter(Boolean));
-    return Array.from(fieldSet).sort();
-  }, [signals]);
-
-  // Filtered signals based on controls
+  // Filtered signals: by field (All fields or selected area) and by weak (if includeWeak off, exclude weak)
   const filteredSignals = useMemo(() => {
     return signals.filter(s => {
       if (s.qualificationLevel === 'not-a-signal') return false;
@@ -99,21 +171,33 @@ export default function ClustersPage() {
     });
   }, [signals, selectedField, includeWeak]);
 
-  // Signals matching the selected cluster
+  // Signals in selected cluster: use signalSnapshots from saved cluster, or lookup from signals (admins)
   const clusterSignals = useMemo(() => {
     if (!selectedCluster) return [];
-    return signals.filter(s => selectedCluster.signalIds.includes(s.id));
+    const snapshots = (selectedCluster as any).signalSnapshots;
+    if (snapshots?.length) {
+      return snapshots.map((s: any) => ({
+        id: s.id,
+        description: s.description || '',
+        qualificationLevel: s.qualificationLevel || 'valid',
+        validationResult: { signalTypes: s.signalTypes || [], reasoning: s.reasoning || [], metrics: s.metrics || [] }
+      }));
+    }
+    return signals.filter(s => selectedCluster.signalIds.includes(s.id)).map(s => ({
+      id: s.id,
+      description: s.description || '',
+      qualificationLevel: s.qualificationLevel,
+      validationResult: s.validationResult
+    }));
   }, [signals, selectedCluster]);
 
-  // Generate clusters via API
+  // Generate clusters via API (admin only) - saves to DB
   const generateClusters = useCallback(async () => {
-    if (filteredSignals.length === 0) return;
+    if (filteredSignals.length === 0 || !user?.isAdmin) return;
 
     setIsGenerating(true);
     setError(null);
     setErrorType(null);
-    setClusters([]);
-    setSelectedCluster(null);
 
     try {
       const signalsData = filteredSignals.map(s => ({
@@ -139,23 +223,37 @@ export default function ClustersPage() {
       // Validate signal IDs against actual signals
       const validSignalIds = new Set(filteredSignals.map(s => s.id));
 
-      const clustersWithIds: Cluster[] = parsed.map((c: any) => ({
-        id: crypto.randomUUID(),
-        title: c.title || 'Untitled Cluster',
-        insight: c.insight || '',
-        strength: ['high', 'medium', 'low'].includes(c.strength) ? c.strength : 'medium',
-        signalIds: (c.signalIds || []).filter((id: string) => validSignalIds.has(id)),
-        patternTags: c.patternTags || [],
-        opportunityPreview: {
-          whoIsStruggling: c.opportunityPreview?.whoIsStruggling || '',
-          desiredOutcome: c.opportunityPreview?.desiredOutcome || '',
-          whatBreaks: c.opportunityPreview?.whatBreaks || '',
-          costOfInaction: c.opportunityPreview?.costOfInaction || ''
-        }
-      }));
+      const clustersWithIds: (Cluster & { signalSnapshots?: any[] })[] = parsed.map((c: any) => {
+        const signalIds = (c.signalIds || []).filter((id: string) => validSignalIds.has(id));
+        const signalSnapshots = filteredSignals
+          .filter(s => signalIds.includes(s.id))
+          .map(s => ({
+            id: s.id,
+            description: s.description,
+            qualificationLevel: s.qualificationLevel,
+            signalTypes: s.validationResult?.signalTypes || [],
+            reasoning: s.validationResult?.reasoning || [],
+            metrics: s.validationResult?.metrics || []
+          }));
+        return {
+          id: crypto.randomUUID(),
+          title: c.title || 'Untitled Cluster',
+          insight: c.insight || '',
+          strength: ['high', 'medium', 'low'].includes(c.strength) ? c.strength : 'medium',
+          signalIds,
+          patternTags: c.patternTags || [],
+          opportunityPreview: {
+            whoIsStruggling: c.opportunityPreview?.whoIsStruggling || '',
+            desiredOutcome: c.opportunityPreview?.desiredOutcome || '',
+            whatBreaks: c.opportunityPreview?.whatBreaks || '',
+            costOfInaction: c.opportunityPreview?.costOfInaction || ''
+          },
+          signalSnapshots
+        };
+      });
 
-      setClusters(clustersWithIds);
-      if (clustersWithIds.length > 0) {
+      const ok = await saveClusters(clustersWithIds);
+      if (ok && clustersWithIds.length > 0) {
         setSelectedCluster(clustersWithIds[0]);
       }
     } catch (err: any) {
@@ -167,7 +265,7 @@ export default function ClustersPage() {
     } finally {
       setIsGenerating(false);
     }
-  }, [filteredSignals, selectedField, includeWeak]);
+  }, [filteredSignals, selectedField, includeWeak, user?.isAdmin, saveClusters]);
 
   // Toggle signal detail expansion
   const toggleSignalExpansion = useCallback((signalId: string) => {
@@ -186,14 +284,14 @@ export default function ClustersPage() {
     setIsRenaming(true);
   };
 
-  const handleRenameSave = () => {
+  const handleRenameSave = async () => {
     if (!selectedCluster || !renameValue.trim()) {
       setIsRenaming(false);
       return;
     }
-    const updated = { ...selectedCluster, title: renameValue.trim() };
-    setClusters(prev => prev.map(c => c.id === selectedCluster.id ? updated : c));
-    setSelectedCluster(updated);
+    const newTitle = renameValue.trim();
+    const ok = await updateClusterTitle(selectedCluster.id, newTitle);
+    if (ok) setSelectedCluster({ ...selectedCluster, title: newTitle });
     setIsRenaming(false);
   };
 
@@ -268,89 +366,100 @@ export default function ClustersPage() {
           </div>
         </div>
 
-        {/* Controls */}
-        <div className="p-6 border-b border-gray-200 space-y-4">
-          {/* Field of Interest */}
-          <div>
-            <label className="text-sm font-medium mb-2 block">Field of Interest</label>
-            <Select value={selectedField || 'all'} onValueChange={(v) => setSelectedField(v === 'all' ? '' : v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All fields</SelectItem>
-                {fields.map(field => (
-                  <SelectItem key={field} value={field}>{field}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* Controls - admin only */}
+        {user?.isAdmin && (
+          <div className="p-6 border-b border-gray-200 space-y-4">
+            {/* Field of Interest */}
+            <div>
+              <label className="text-sm font-medium mb-2 block">Field of Interest</label>
+              <Select value={selectedField || 'all'} onValueChange={(v) => setSelectedField(v === 'all' ? '' : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All fields" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All fields</SelectItem>
+                  {areas.map(area => (
+                    <SelectItem key={area.id} value={area.name}>{area.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          {/* Include Weak Signals toggle */}
-          <div className="flex items-center gap-3">
-            <div
-              onClick={() => setIncludeWeak(!includeWeak)}
-              className={cn(
-                'relative inline-flex h-6 w-11 items-center rounded-full cursor-pointer transition-colors',
-                includeWeak ? 'bg-purple-600' : 'bg-gray-300'
-              )}
-            >
-              <span
+            {/* Include Weak Signals toggle */}
+            <div className="flex items-center gap-3">
+              <div
+                onClick={() => setIncludeWeak(!includeWeak)}
                 className={cn(
-                  'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
-                  includeWeak ? 'translate-x-6' : 'translate-x-1'
+                  'relative inline-flex h-6 w-11 items-center rounded-full cursor-pointer transition-colors',
+                  includeWeak ? 'bg-purple-600' : 'bg-gray-300'
                 )}
-              />
-            </div>
-            <label className="text-sm text-gray-700">Include Weak Signals</label>
-          </div>
-
-          {/* Signal count */}
-          <p className="text-sm text-gray-500">
-            {filteredSignals.length} signal{filteredSignals.length !== 1 ? 's' : ''} available
-          </p>
-
-          {/* Error banner */}
-          {error && (
-            <div className={cn(
-              'flex items-start justify-between p-3 rounded-lg border',
-              errorType === 'rate_limit' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
-            )}>
-              <p className={cn(
-                'text-sm',
-                errorType === 'rate_limit' ? 'text-amber-800' : 'text-red-800'
-              )}>
-                {error}
-              </p>
-              <button
-                onClick={() => { setError(null); setErrorType(null); }}
-                className="text-gray-400 hover:text-gray-600 ml-2 flex-shrink-0"
               >
-                <X className="h-4 w-4" />
-              </button>
+                <span
+                  className={cn(
+                    'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+                    includeWeak ? 'translate-x-6' : 'translate-x-1'
+                  )}
+                />
+              </div>
+              <label className="text-sm text-gray-700">Include Weak Signals</label>
             </div>
-          )}
 
-          {/* Generate button */}
-          <Button
-            onClick={generateClusters}
-            disabled={isGenerating || filteredSignals.length === 0}
-            className="w-full"
-          >
-            {isGenerating ? (
-              <span className="flex items-center gap-2">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                Generating...
-              </span>
-            ) : 'Generate Clusters'}
-          </Button>
-        </div>
+            {/* Signal count */}
+            <p className="text-sm text-gray-500">
+              {signalsLoading ? (
+                'Loading signals...'
+              ) : (
+                <>{filteredSignals.length} signal{filteredSignals.length !== 1 ? 's' : ''} available</>
+              )}
+            </p>
+
+            {/* Error banner */}
+            {error && (
+              <div className={cn(
+                'flex items-start justify-between p-3 rounded-lg border',
+                errorType === 'rate_limit' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
+              )}>
+                <p className={cn(
+                  'text-sm',
+                  errorType === 'rate_limit' ? 'text-amber-800' : 'text-red-800'
+                )}>
+                  {error}
+                </p>
+                <button
+                  onClick={() => { setError(null); setErrorType(null); }}
+                  className="text-gray-400 hover:text-gray-600 ml-2 flex-shrink-0"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Generate button - admin only */}
+            <Button
+              onClick={generateClusters}
+              disabled={isGenerating || filteredSignals.length === 0}
+              className="w-full"
+            >
+              {isGenerating ? (
+                <span className="flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Generating...
+                </span>
+              ) : 'Generate Clusters'}
+            </Button>
+          </div>
+        )}
 
         {/* Cluster list */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {clusters.length === 0 ? (
+          {clustersError && (
+            <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm mb-2">{clustersError}</div>
+          )}
+          {clustersLoading ? (
+            <p className="text-sm text-gray-500 text-center py-8">Loading clusters...</p>
+          ) : clusters.length === 0 ? (
             <p className="text-sm text-gray-500 text-center py-8">
-              No clusters generated yet. Click &quot;Generate Clusters&quot; to start.
+              {user?.isAdmin ? 'No clusters yet. Click &quot;Generate Clusters&quot; to start.' : 'No clusters available.'}
             </p>
           ) : (
             clusters.map(cluster => (
@@ -421,11 +530,21 @@ export default function ClustersPage() {
                       <h2 className="text-2xl font-bold">{selectedCluster.title}</h2>
                     )}
                   </div>
-                  <div className="flex gap-2 ml-4 flex-shrink-0">
-                    <Button variant="outline" size="sm" onClick={handleRenameStart}>Rename</Button>
+                  <div className="flex flex-wrap gap-2 ml-4 flex-shrink-0">
+                    {user?.isAdmin && (
+                      <Button variant="outline" size="sm" onClick={handleRenameStart}>Rename</Button>
+                    )}
                     <Button variant="outline" size="sm" onClick={handleExport}>
                       <Download className="h-3.5 w-3.5 mr-1" />
                       Export
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => {
+                      setConvertUserRequest('');
+                      setConvertAiResult('');
+                      setConvertError('');
+                      setIsConvertModalOpen(true);
+                    }}>
+                      Convert to Opportunity
                     </Button>
                   </div>
                 </div>
@@ -570,57 +689,161 @@ export default function ClustersPage() {
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Cost of inaction (estimated):</p>
                   <p className="text-sm text-gray-700">{selectedCluster.opportunityPreview.costOfInaction}</p>
                 </div>
-
-                <Button
-                  className="w-full mt-2"
-                  variant="outline"
-                  onClick={() => setIsConvertModalOpen(true)}
-                >
-                  Convert to Opportunity
-                </Button>
               </CardContent>
             </Card>
           </div>
         )}
       </div>
 
-      {/* ── Convert to Opportunity Modal ── */}
-      <Dialog open={isConvertModalOpen} onOpenChange={setIsConvertModalOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+      {/* ── Convert to Opportunity Modal (full screen) ── */}
+      <Dialog open={isConvertModalOpen} onOpenChange={(open) => {
+        if (!isGeneratingOpportunity) {
+          setIsConvertModalOpen(open);
+          if (!open) {
+            setConvertUserRequest('');
+            setConvertAiResult('');
+            setConvertError('');
+          }
+        }
+      }}>
+        <DialogContent className="fixed left-0 top-0 z-50 max-w-none w-screen h-screen translate-x-0 translate-y-0 rounded-none flex flex-col gap-0 p-0 data-[state=open]:slide-in-from-none data-[state=closed]:slide-out-to-none">
+          <DialogHeader className="p-6 border-b shrink-0">
             <DialogTitle>Convert to Opportunity</DialogTitle>
             <DialogDescription>
-              Generate a structured opportunity from this cluster&apos;s insights
+              Shape the opportunity using the signal analysis prompt. Enter your request on the right, then generate.
             </DialogDescription>
           </DialogHeader>
 
-          {selectedCluster && (
-            <div className="space-y-3">
-              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                <p className="text-sm font-semibold text-purple-800">{selectedCluster.title}</p>
-                <p className="text-xs text-purple-600 mt-1">{selectedCluster.insight}</p>
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-0 min-h-0 p-6 overflow-hidden">
+            {/* Left: cluster summary */}
+            {selectedCluster && (
+              <div className="flex flex-col gap-4 overflow-y-auto pr-4">
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                  <p className="text-sm font-semibold text-purple-800">{selectedCluster.title}</p>
+                  <p className="text-xs text-purple-600 mt-1">{selectedCluster.insight}</p>
+                </div>
+                <div className="space-y-2 text-sm text-gray-600">
+                  <p><span className="font-medium">Signals:</span> {selectedCluster.signalIds.length}</p>
+                  <p><span className="font-medium">Strength:</span> {selectedCluster.strength}</p>
+                  <div>
+                    <span className="font-medium">Opportunity preview:</span>
+                    <ul className="mt-1 space-y-0.5 text-xs">
+                      <li>Who: {selectedCluster.opportunityPreview?.whoIsStruggling || '—'}</li>
+                      <li>Desired: {selectedCluster.opportunityPreview?.desiredOutcome || '—'}</li>
+                      <li>Breaks: {selectedCluster.opportunityPreview?.whatBreaks || '—'}</li>
+                      <li>Cost: {selectedCluster.opportunityPreview?.costOfInaction || '—'}</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
+            )}
 
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Signals covered:</span>
-                  <span className="font-medium">{selectedCluster.signalIds.length}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Pattern strength:</span>
-                  <span className="font-medium capitalize">{selectedCluster.strength}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Pattern tags:</span>
-                  <span className="font-medium">{selectedCluster.patternTags.length}</span>
-                </div>
-              </div>
+            {/* Right: user request input */}
+            <div className="flex flex-col gap-2 overflow-hidden">
+              <label className="text-sm font-medium">Your request to shape the opportunity</label>
+              <Textarea
+                value={convertUserRequest}
+                onChange={(e) => setConvertUserRequest(e.target.value)}
+                placeholder="Describe how you want to shape this opportunity..."
+                className="min-h-[120px] resize-y flex-1"
+                disabled={isGeneratingOpportunity}
+              />
+              <Button
+                onClick={async () => {
+                  if (!selectedCluster) return;
+                  setIsGeneratingOpportunity(true);
+                  setConvertError('');
+                  setConvertAiResult('');
+                  try {
+                    const { data } = await api.post<{ rawResponse: string }>('/api/opportunities/generate', {
+                      cluster: {
+                        title: selectedCluster.title,
+                        insight: selectedCluster.insight,
+                        opportunityPreview: selectedCluster.opportunityPreview
+                      },
+                      userRequest: convertUserRequest || undefined
+                    });
+                    setConvertAiResult(data.rawResponse || '');
+                  } catch (err: any) {
+                    setConvertError(err.response?.data?.error || err.message || 'Failed to generate');
+                  } finally {
+                    setIsGeneratingOpportunity(false);
+                  }
+                }}
+                disabled={isGeneratingOpportunity}
+              >
+                {isGeneratingOpportunity ? 'Generating...' : 'Generate with AI'}
+              </Button>
             </div>
-          )}
+          </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsConvertModalOpen(false)}>Cancel</Button>
-            <Button>Generate Opportunity</Button>
+          {/* AI result area — human-readable display; raw JSON is stored in DB on Save */}
+          <div className="shrink-0 border-t p-6 bg-gray-50 max-h-[40vh] overflow-y-auto">
+            <h3 className="text-sm font-semibold text-gray-700 mb-2">AI result</h3>
+            {convertError && (
+              <div className="bg-red-50 text-red-700 p-3 rounded text-sm">{convertError}</div>
+            )}
+            {convertAiResult ? (
+              (() => {
+                const parsed = parseAiResultAsJson(convertAiResult);
+                if (parsed) {
+                  return (
+                    <div className="text-sm text-gray-800 bg-white border rounded-lg p-4 space-y-4">
+                      {Object.entries(parsed).map(([key, value]) => (
+                        <div key={key}>
+                          <h4 className="font-semibold text-gray-700 mb-1">{labelForKey(key)}</h4>
+                          <div className="text-gray-800">{renderValue(value)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+                return (
+                  <div className="text-sm text-gray-800 whitespace-pre-wrap bg-white border rounded-lg p-4">
+                    {convertAiResult}
+                  </div>
+                );
+              })()
+            ) : (
+              <p className="text-sm text-gray-500 italic">Generate to see the opportunity content.</p>
+            )}
+          </div>
+
+          <DialogFooter className="p-6 border-t shrink-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsConvertModalOpen(false);
+                setConvertUserRequest('');
+                setConvertAiResult('');
+                setConvertError('');
+              }}
+              disabled={isGeneratingOpportunity}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!selectedCluster || !convertAiResult.trim()) return;
+                try {
+                  await api.post('/api/opportunities', {
+                    clusterId: selectedCluster.id,
+                    title: selectedCluster.title,
+                    content: convertAiResult.trim(),
+                    userRequest: convertUserRequest.trim() || undefined
+                  });
+                  setIsConvertModalOpen(false);
+                  setConvertUserRequest('');
+                  setConvertAiResult('');
+                  setConvertError('');
+                } catch (err: any) {
+                  setConvertError(err.response?.data?.error || err.message || 'Failed to save');
+                }
+              }}
+              disabled={!convertAiResult.trim() || isGeneratingOpportunity}
+            >
+              Save opportunity
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

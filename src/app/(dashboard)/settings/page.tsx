@@ -6,6 +6,7 @@ import { useAuth } from '@/components/auth-provider';
 import { useAreas } from '@/hooks/useAreas';
 import { usePrompts } from '@/hooks/usePrompts';
 import { useLLMProviders } from '@/hooks/useLLMProviders';
+import { useSignals, type SignalRow } from '@/hooks/useSignals';
 import {
   MapPin,
   Radio,
@@ -19,6 +20,10 @@ import {
   X,
   Save,
   Brain,
+  Download,
+  ChevronDown,
+  ChevronUp,
+  AlertTriangle,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -41,6 +46,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Area, Prompt, LLMProvider, LLMTestResult } from '@/types';
+import { getSignalSourceMode, setSignalSourceMode, type SignalSourceMode } from '@/lib/session';
+import api from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const TAB_AREAS = 'areas';
@@ -64,6 +71,56 @@ export default function SettingsPage() {
     testProvider,
     activateProvider,
   } = useLLMProviders();
+
+  const {
+    signals: allSignals,
+    isLoading: signalsLoading,
+    error: signalsError,
+    selectedIds,
+    toggleSelect,
+    selectAll,
+    clearSelection,
+    deleteSignal: deleteSignalFromDB,
+    exportCSV,
+    clusters: signalClusters,
+    isGenerating: isGeneratingClusters,
+    clusterError,
+    generateClusters,
+    refetch: refetchSignals
+  } = useSignals();
+
+  // Signals tab UI state
+  const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
+  const [signalDetailForDialog, setSignalDetailForDialog] = useState<SignalRow | null>(null);
+  const [signalSourceMode, setSignalSourceModeState] = useState<SignalSourceMode>('live');
+  const [showClearClustersDialog, setShowClearClustersDialog] = useState(false);
+  const [clearClustersConfirm, setClearClustersConfirm] = useState('');
+  const [isClearingClusters, setIsClearingClusters] = useState(false);
+  const [clearClustersError, setClearClustersError] = useState('');
+  useEffect(() => {
+    setSignalSourceModeState(getSignalSourceMode());
+  }, []);
+
+  function handleSignalSourceModeChange(mode: SignalSourceMode) {
+    setSignalSourceMode(mode);
+    setSignalSourceModeState(mode);
+    refetchSignals();
+  }
+
+  async function handleClearClustersConfirm() {
+    if (clearClustersConfirm !== 'DELETE') return;
+    setIsClearingClusters(true);
+    setClearClustersError('');
+    try {
+      await api.delete('/api/clusters');
+      setShowClearClustersDialog(false);
+      setClearClustersConfirm('');
+    } catch (err: any) {
+      setClearClustersError(err.response?.data?.error || err.message || 'Failed to clear clusters');
+    } finally {
+      setIsClearingClusters(false);
+    }
+  }
 
   // Areas state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -377,14 +434,199 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value={TAB_SIGNALS}>
+        <TabsContent value={TAB_SIGNALS} className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle>Signals</CardTitle>
-              <CardDescription>Manage signals.</CardDescription>
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <CardTitle>Signals</CardTitle>
+                  <CardDescription>All validated signals across users.</CardDescription>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">Operating as:</span>
+                    <Select value={signalSourceMode} onValueChange={(v) => handleSignalSourceModeChange(v as SignalSourceMode)}>
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="demo">DEMO</SelectItem>
+                        <SelectItem value="live">LIVE</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={exportCSV} disabled={signalsLoading || allSignals.length === 0} className="flex items-center gap-2">
+                    <Download className="h-4 w-4" />
+                    Export CSV
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
-            <CardContent>
-              <p className="text-sm text-gray-600">Coming soon.</p>
+            <CardContent className="space-y-4">
+              {signalsLoading && <p className="text-sm text-gray-600">Loading signals...</p>}
+              {signalsError && <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm">{signalsError}</div>}
+
+              {!signalsLoading && !signalsError && (
+                <>
+                  {/* Signal listing table */}
+                  <div className="border rounded-lg overflow-hidden">
+                    {/* Header row */}
+                    <div className="grid grid-cols-[32px_1fr_1fr_1fr_1fr_100px_40px] gap-2 items-center bg-gray-50 border-b px-3 py-2 text-xs font-semibold text-gray-500 uppercase">
+                      <input
+                        type="checkbox"
+                        checked={allSignals.length > 0 && selectedIds.size === allSignals.length}
+                        onChange={() => selectedIds.size === allSignals.length ? clearSelection() : selectAll()}
+                        className="rounded"
+                      />
+                      <span>User</span>
+                      <span>Session</span>
+                      <span>Field</span>
+                      <span>Title</span>
+                      <span>Qualifier</span>
+                      <span />
+                    </div>
+
+                    {/* Signal rows */}
+                    {allSignals.length === 0 ? (
+                      <p className="text-sm text-gray-500 px-3 py-4 text-center">No signals saved yet.</p>
+                    ) : (
+                      allSignals.map(signal => (
+                        <div
+                          key={signal.id}
+                          className={cn(
+                            'grid grid-cols-[32px_1fr_1fr_1fr_1fr_100px_40px] gap-2 items-center px-3 py-2 text-sm border-b last:border-b-0',
+                            selectedIds.has(signal.id) && 'bg-blue-50'
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(signal.id)}
+                            onChange={() => toggleSelect(signal.id)}
+                            className="rounded"
+                          />
+                          <span className="truncate text-gray-700">
+                            {[signal.first_name, signal.last_name].filter(Boolean).join(' ') || signal.email || 'Unknown'}
+                          </span>
+                          <span className="truncate text-gray-500 font-mono text-xs">{signal.session_id?.slice(0, 8) || '—'}</span>
+                          <span className="truncate text-gray-600">{signal.field_of_interest || '—'}</span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="truncate cursor-pointer hover:bg-gray-100 rounded px-1 -mx-1"
+                            onDoubleClick={() => setSignalDetailForDialog(signal)}
+                            onKeyDown={(e) => e.key === 'Enter' && setSignalDetailForDialog(signal)}
+                          >
+                            {signal.title || '—'}
+                          </span>
+                          <span>
+                            <span className={cn(
+                              'inline-block text-xs px-2 py-0.5 rounded-full',
+                              signal.qualification_level === 'valid' && 'bg-green-100 text-green-800',
+                              signal.qualification_level === 'weak' && 'bg-yellow-100 text-yellow-800',
+                              signal.qualification_level === 'not-a-signal' && 'bg-red-100 text-red-800'
+                            )}>
+                              {signal.qualification_level || '—'}
+                            </span>
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteSignalFromDB(signal.id)}
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 w-7"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Selection bar + Generate Cluster button */}
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <span className="text-sm text-gray-500">
+                      {selectedIds.size} signal{selectedIds.size !== 1 ? 's' : ''} selected
+                    </span>
+                    <Button
+                      onClick={generateClusters}
+                      disabled={selectedIds.size === 0 || isGeneratingClusters}
+                    >
+                      {isGeneratingClusters ? 'Generating...' : 'Create Cluster Signal'}
+                    </Button>
+                  </div>
+
+                  {/* Cluster error */}
+                  {clusterError && (
+                    <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm">{clusterError}</div>
+                  )}
+
+                  {/* Cluster result cards */}
+                  {signalClusters.length > 0 && (
+                    <div className="space-y-3 pt-2">
+                      <h3 className="text-sm font-semibold text-gray-700">Generated Clusters</h3>
+                      {signalClusters.map(cluster => (
+                        <div key={cluster.id} className="border rounded-lg overflow-hidden">
+                          {/* Cluster header — always visible */}
+                          <button
+                            type="button"
+                            className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 text-left"
+                            onClick={() => setExpandedClusterId(expandedClusterId === cluster.id ? null : cluster.id)}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span className={cn(
+                                'inline-block w-2.5 h-2.5 rounded-full flex-shrink-0',
+                                cluster.strength === 'high' && 'bg-green-500',
+                                cluster.strength === 'medium' && 'bg-yellow-500',
+                                cluster.strength === 'low' && 'bg-gray-400'
+                              )} />
+                              <span className="font-semibold text-sm truncate">{cluster.title}</span>
+                              <span className="text-xs text-gray-400 flex-shrink-0">{cluster.signalIds.length} signal{cluster.signalIds.length !== 1 ? 's' : ''}</span>
+                            </div>
+                            {expandedClusterId === cluster.id ? <ChevronUp className="h-4 w-4 text-gray-400 flex-shrink-0" /> : <ChevronDown className="h-4 w-4 text-gray-400 flex-shrink-0" />}
+                          </button>
+
+                          {/* Cluster detail — expandable */}
+                          {expandedClusterId === cluster.id && (
+                            <div className="px-4 py-3 space-y-3 border-t">
+                              <p className="text-sm text-gray-700">{cluster.insight}</p>
+
+                              {/* Pattern tags */}
+                              {cluster.patternTags.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {cluster.patternTags.map(tag => (
+                                    <span key={tag} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{tag}</span>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Opportunity preview */}
+                              {cluster.opportunityPreview && (
+                                <div className="bg-purple-50 rounded-md p-3 space-y-1.5">
+                                  <p className="text-xs font-semibold text-purple-700">Opportunity Preview</p>
+                                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-purple-900">
+                                    <div><span className="font-medium">Who:</span> {cluster.opportunityPreview.whoIsStruggling}</div>
+                                    <div><span className="font-medium">Desired:</span> {cluster.opportunityPreview.desiredOutcome}</div>
+                                    <div><span className="font-medium">What breaks:</span> {cluster.opportunityPreview.whatBreaks}</div>
+                                    <div><span className="font-medium">Cost of inaction:</span> {cluster.opportunityPreview.costOfInaction}</div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Signal IDs in this cluster */}
+                              <div className="text-xs text-gray-500">
+                                <span className="font-medium">Signals:</span>{' '}
+                                {cluster.signalIds.map(id => {
+                                  const sig = allSignals.find(s => s.id === id);
+                                  return <span key={id} className="inline-block mr-2">{sig?.title || id.slice(0, 8)}</span>;
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -393,10 +635,26 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Clusters</CardTitle>
-              <CardDescription>Manage clusters.</CardDescription>
+              <CardDescription>Manage clusters in the database.</CardDescription>
             </CardHeader>
-            <CardContent>
-              <p className="text-sm text-gray-600">Coming soon.</p>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-4">
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    setShowClearClustersDialog(true);
+                    setClearClustersConfirm('');
+                    setClearClustersError('');
+                  }}
+                  className="gap-2"
+                >
+                  <AlertTriangle className="h-4 w-4" />
+                  Clear All Clusters
+                </Button>
+                <p className="text-sm text-gray-500">
+                  Remove all clusters from the database and start fresh. This cannot be undone.
+                </p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -758,6 +1016,133 @@ export default function SettingsPage() {
               disabled={isConfiguring || isTesting}
             >
               {isTesting ? 'Testing...' : isConfiguring ? 'Saving...' : 'Save & Test'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Signal detail popup (double-click title in Signals tab) */}
+      <Dialog open={!!signalDetailForDialog} onOpenChange={(open) => !open && setSignalDetailForDialog(null)}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Signal details</DialogTitle>
+            <DialogDescription>
+              Full signal information
+            </DialogDescription>
+          </DialogHeader>
+          {signalDetailForDialog && (
+            <div className="space-y-3 text-sm">
+              <div>
+                <span className="font-medium text-gray-500">Title</span>
+                <p className="mt-0.5 text-gray-900">{signalDetailForDialog.title || '—'}</p>
+              </div>
+              <div>
+                <span className="font-medium text-gray-500">Description</span>
+                <p className="mt-0.5 text-gray-900 whitespace-pre-wrap">{signalDetailForDialog.description || '—'}</p>
+              </div>
+              <div>
+                <span className="font-medium text-gray-500">User</span>
+                <p className="mt-0.5 text-gray-900">
+                  {[signalDetailForDialog.first_name, signalDetailForDialog.last_name].filter(Boolean).join(' ') || signalDetailForDialog.email || 'Unknown'}
+                </p>
+              </div>
+              <div>
+                <span className="font-medium text-gray-500">Session</span>
+                <p className="mt-0.5 font-mono text-xs text-gray-700">{signalDetailForDialog.session_id || '—'}</p>
+              </div>
+              <div>
+                <span className="font-medium text-gray-500">Field of interest</span>
+                <p className="mt-0.5 text-gray-900">{signalDetailForDialog.field_of_interest || '—'}</p>
+              </div>
+              <div>
+                <span className="font-medium text-gray-500">Qualification</span>
+                <p className="mt-0.5">
+                  <span className={cn(
+                    'inline-block text-xs px-2 py-0.5 rounded-full',
+                    signalDetailForDialog.qualification_level === 'valid' && 'bg-green-100 text-green-800',
+                    signalDetailForDialog.qualification_level === 'weak' && 'bg-yellow-100 text-yellow-800',
+                    signalDetailForDialog.qualification_level === 'not-a-signal' && 'bg-red-100 text-red-800'
+                  )}>
+                    {signalDetailForDialog.qualification_level || '—'}
+                  </span>
+                </p>
+              </div>
+              {signalDetailForDialog.validation_result && (
+                <div>
+                  <span className="font-medium text-gray-500">Validation</span>
+                  <div className="mt-1 p-2 bg-gray-50 rounded text-xs text-gray-700 space-y-1">
+                    {signalDetailForDialog.validation_result.signalTypes?.length > 0 && (
+                      <p><span className="font-medium">Types:</span> {signalDetailForDialog.validation_result.signalTypes.join(', ')}</p>
+                    )}
+                    {signalDetailForDialog.validation_result.reasoning?.length > 0 && (
+                      <p><span className="font-medium">Reasoning:</span> {Array.isArray(signalDetailForDialog.validation_result.reasoning) ? signalDetailForDialog.validation_result.reasoning.join('; ') : String(signalDetailForDialog.validation_result.reasoning)}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div>
+                <span className="font-medium text-gray-500">Created</span>
+                <p className="mt-0.5 text-gray-600">{signalDetailForDialog.created_at ? new Date(signalDetailForDialog.created_at).toLocaleString() : '—'}</p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSignalDetailForDialog(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear all clusters confirmation dialog */}
+      <Dialog open={showClearClustersDialog} onOpenChange={(open) => {
+            if (!isClearingClusters) {
+              setShowClearClustersDialog(open);
+              if (!open) setClearClustersConfirm('');
+            }
+          }}>
+        <DialogContent className="max-w-md" showClose={!isClearingClusters}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Clear All Clusters
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete all clusters from the database. This action cannot be undone.
+              Type <strong>DELETE</strong> (in capital letters) to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-sm font-medium">Confirmation</label>
+              <Input
+                value={clearClustersConfirm}
+                onChange={(e) => setClearClustersConfirm(e.target.value)}
+                placeholder="Type DELETE to confirm"
+                className="font-mono mt-1"
+                disabled={isClearingClusters}
+                autoComplete="off"
+              />
+            </div>
+            {clearClustersError && (
+              <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm">{clearClustersError}</div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowClearClustersDialog(false);
+                setClearClustersConfirm('');
+              }}
+              disabled={isClearingClusters}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleClearClustersConfirm}
+              disabled={clearClustersConfirm !== 'DELETE' || isClearingClusters}
+            >
+              {isClearingClusters ? 'Clearing...' : 'Clear All Clusters'}
             </Button>
           </DialogFooter>
         </DialogContent>
