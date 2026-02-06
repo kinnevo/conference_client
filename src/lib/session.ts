@@ -124,3 +124,43 @@ export function hasSession(): boolean {
   if (!isClient()) return false;
   return !!getAccessToken();
 }
+
+/** Keys used by signal validator for per-session state */
+const SIGNAL_VALIDATOR_KEYS = [
+  'signal-validator-signals',
+  'signal-validator-session',
+  'signal-validator-session-id',
+] as const;
+
+const SIGNAL_SOURCE_MODE_KEY = 'signal-source-mode';
+export type SignalSourceMode = 'demo' | 'live';
+
+/**
+ * Get the signal source mode: 'demo' (samples_signals table) or 'live' (signals table).
+ * Default: 'live'
+ */
+export function getSignalSourceMode(): SignalSourceMode {
+  if (!isClient()) return 'live';
+  const v = sessionStorage.getItem(SIGNAL_SOURCE_MODE_KEY);
+  return v === 'demo' ? 'demo' : 'live';
+}
+
+/**
+ * Set the signal source mode.
+ */
+export function setSignalSourceMode(mode: SignalSourceMode): void {
+  if (!isClient()) return;
+  sessionStorage.setItem(SIGNAL_SOURCE_MODE_KEY, mode);
+}
+
+/**
+ * Clear signal validator state for the current session.
+ * Call on login so each login starts with a fresh validator (no shared memory across sessions).
+ */
+export function clearSignalValidatorState(): void {
+  if (!isClient()) return;
+  for (const key of SIGNAL_VALIDATOR_KEYS) {
+    sessionStorage.removeItem(key);
+    localStorage.removeItem(key);
+  }
+}

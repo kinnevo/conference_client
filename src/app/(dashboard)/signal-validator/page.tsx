@@ -61,7 +61,8 @@ export default function SignalValidatorPage() {
     updateSignal,
     deleteSignal,
     loadSignal,
-    clearForm
+    clearForm,
+    syncStatus
   } = useSignalValidator();
 
   useEffect(() => {
@@ -300,14 +301,35 @@ export default function SignalValidatorPage() {
                 )}
               </div>
 
-              <Button
-                onClick={handleSave}
-                variant={activeSignalId ? 'secondary' : 'default'}
-                className="flex items-center gap-2"
-              >
-                <Save className="h-4 w-4" />
-                {activeSignalId ? 'Update Signal' : 'Save as New Signal'}
-              </Button>
+              <div className="flex items-center gap-3">
+                {syncStatus !== 'idle' && (
+                  <span className="flex items-center gap-1.5 text-xs">
+                    <span className={cn(
+                      'inline-block w-2 h-2 rounded-full',
+                      syncStatus === 'pending' && 'bg-gray-400 animate-pulse',
+                      syncStatus === 'success' && 'bg-green-500',
+                      syncStatus === 'error' && 'bg-red-500'
+                    )} />
+                    <span className={cn(
+                      syncStatus === 'pending' && 'text-gray-500',
+                      syncStatus === 'success' && 'text-green-600',
+                      syncStatus === 'error' && 'text-red-600'
+                    )}>
+                      {syncStatus === 'pending' && 'Saving…'}
+                      {syncStatus === 'success' && 'Saved'}
+                      {syncStatus === 'error' && 'Sync failed'}
+                    </span>
+                  </span>
+                )}
+                <Button
+                  onClick={handleSave}
+                  variant={activeSignalId ? 'secondary' : 'default'}
+                  className="flex items-center gap-2"
+                >
+                  <Save className="h-4 w-4" />
+                  {activeSignalId ? 'Update Signal' : 'Save as New Signal'}
+                </Button>
+              </div>
             </div>
 
             {/* Results Content */}

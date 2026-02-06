@@ -76,7 +76,7 @@ export default function AdminPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-gray-600">
-                General Attendees
+                Participants
               </CardTitle>
             </CardHeader>
             <CardContent>

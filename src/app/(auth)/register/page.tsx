@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SparkBridgeLogo } from '@/components/sparkbridge-logo';
 
 export default function RegisterPage() {
   const { register, user, isLoading: authLoading } = useAuth();
@@ -84,7 +85,10 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-8">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4 py-8">
+      <div className="mb-6 flex justify-center">
+        <SparkBridgeLogo logoHeight={96} textSize="md" />
+      </div>
       <Card className="w-full max-w-2xl">
         <CardHeader>
           <CardTitle>Create Account</CardTitle>
@@ -170,7 +174,7 @@ export default function RegisterPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="general">General Attendee</SelectItem>
+                  <SelectItem value="general">Participant</SelectItem>
                   <SelectItem value="speaker">Speaker</SelectItem>
                   <SelectItem value="sponsor">Sponsor</SelectItem>
                   <SelectItem value="vip">VIP</SelectItem>

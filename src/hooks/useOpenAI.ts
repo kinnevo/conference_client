@@ -31,10 +31,9 @@ export function useOpenAI(): UseOpenAIReturn {
 
       console.log('Raw OpenAI Response:', rawResponse);
 
-      // Parse the structured response
       const result = parseValidationResponse(rawResponse);
-
-      console.log('Parsed Result:', result);
+      // originalInput is always the text the user submitted — don't rely on AI echoing it
+      result.originalInput = signalCandidate;
 
       return result;
     } catch (err: any) {
@@ -54,61 +53,62 @@ export function useOpenAI(): UseOpenAIReturn {
 }
 
 function parseValidationResponse(response: string): ValidationResult {
-  console.log('Parsing response...');
+  // Strip markdown code fences if present
+  const cleaned = response.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
 
-  // Extract original input
-  const originalInputMatch = response.match(/ORIGINAL INPUT:\s*<<<\s*([\s\S]*?)\s*>>>/);
-  const originalInput = originalInputMatch ? originalInputMatch[1].trim() : '';
-  console.log('Original Input:', originalInput);
+  // Try JSON parse first (primary path — matches current prompt)
+  try {
+    const json = JSON.parse(cleaned);
+    const validOutcomes: QualificationLevel[] = ['valid', 'weak', 'not-a-signal'];
+    return {
+      originalInput: json.originalInput || '',
+      outcome: (validOutcomes.includes(json.outcome) ? json.outcome : 'weak') as QualificationLevel,
+      reasoning: Array.isArray(json.reasoning) ? json.reasoning : [],
+      signalTypes: Array.isArray(json.signalTypes) ? json.signalTypes : [],
+      clarification: json.clarification || '',
+      metrics: Array.isArray(json.metrics) ? json.metrics : [],
+      improvements: Array.isArray(json.improvements) ? json.improvements : [],
+      improvedVersion: json.improvedVersion || '',
+      rawResponse: response
+    };
+  } catch {
+    // Not JSON — fall back to section-header regex parsing
+  }
 
-  // Extract outcome
+  // Regex fallback for plain-text section format
   const outcomeMatch = response.match(/OUTCOME:\s*(\w+[-\w]*)/);
   const outcome = (outcomeMatch?.[1] || 'weak') as QualificationLevel;
-  console.log('Outcome:', outcome);
 
-  // Extract signal types
   const signalTypesMatch = response.match(/SIGNAL TYPES:\s*(.+)/);
   const signalTypes = signalTypesMatch
     ? signalTypesMatch[1].split(',').map(s => s.trim()).filter(Boolean)
     : [];
 
-  // Extract reasoning (bullet points)
   const reasoningSection = response.match(/REASONING:\s*([\s\S]*?)(?=\n\n[A-Z])/);
   const reasoning = reasoningSection
-    ? reasoningSection[1]
-        .split('\n')
-        .filter(line => line.trim().startsWith('-'))
-        .map(line => line.trim().substring(1).trim())
+    ? reasoningSection[1].split('\n').filter(l => l.trim().startsWith('-')).map(l => l.trim().substring(1).trim())
     : [];
 
-  // Extract clarification
   const clarificationMatch = response.match(/CLARIFICATION NEEDED:\s*([\s\S]*?)(?=\n\n[A-Z])/);
   const clarification = clarificationMatch ? clarificationMatch[1].trim() : '';
 
-  // Extract metrics (bullet points)
   const metricsSection = response.match(/METRICS TO TRACK:\s*([\s\S]*?)(?=\n\n[A-Z])/);
   const metrics = metricsSection
-    ? metricsSection[1]
-        .split('\n')
-        .filter(line => line.trim().startsWith('-'))
-        .map(line => line.trim().substring(1).trim())
+    ? metricsSection[1].split('\n').filter(l => l.trim().startsWith('-')).map(l => l.trim().substring(1).trim())
     : [];
 
-  // Extract improvements (numbered list)
   const improvementsSection = response.match(/HOW TO IMPROVE:\s*([\s\S]*?)(?=\n\n[A-Z])/);
   const improvements = improvementsSection
-    ? improvementsSection[1]
-        .split('\n')
-        .filter(line => /^\d+\./.test(line.trim()))
-        .map(line => line.trim().replace(/^\d+\.\s*/, ''))
+    ? improvementsSection[1].split('\n').filter(l => /^\d+\./.test(l.trim())).map(l => l.trim().replace(/^\d+\.\s*/, ''))
     : [];
 
-  // Extract improved version
   const improvedVersionMatch = response.match(/IMPROVED VERSION:\s*([\s\S]*?)$/);
   const improvedVersion = improvedVersionMatch ? improvedVersionMatch[1].trim() : '';
 
+  const originalInputMatch = response.match(/ORIGINAL INPUT:\s*<<<\s*([\s\S]*?)\s*>>>/);
+
   return {
-    originalInput,
+    originalInput: originalInputMatch ? originalInputMatch[1].trim() : '',
     outcome,
     reasoning,
     signalTypes,
