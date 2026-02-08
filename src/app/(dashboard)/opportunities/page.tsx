@@ -22,6 +22,39 @@ import api from '@/lib/api';
 
 /** Try to parse opportunity content as JSON (object or first element of array). */
 function parseContentAsJson(raw: string): Record<string, unknown> | null {
+  // First, try to extract JSON from within code fences (handles text before/after)
+  const codeBlockMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (codeBlockMatch) {
+    try {
+      const parsed = JSON.parse(codeBlockMatch[1].trim());
+      if (typeof parsed !== 'object' || parsed === null) return null;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const first = parsed[0];
+        return typeof first === 'object' && first !== null && !Array.isArray(first) ? (first as Record<string, unknown>) : null;
+      }
+      return !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      // Fall through to try parsing the whole string
+    }
+  }
+
+  // Second, try to find JSON object or array anywhere in the text
+  const jsonMatch = raw.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[1]);
+      if (typeof parsed !== 'object' || parsed === null) return null;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const first = parsed[0];
+        return typeof first === 'object' && first !== null && !Array.isArray(first) ? (first as Record<string, unknown>) : null;
+      }
+      return !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      // Fall through
+    }
+  }
+
+  // Third, try parsing the whole string after basic cleanup
   const trimmed = raw.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
   try {
     const parsed = JSON.parse(trimmed);
@@ -38,6 +71,39 @@ function parseContentAsJson(raw: string): Record<string, unknown> | null {
 
 /** Get a single object from content (for display). Handles both object and array. */
 function getContentObject(raw: string): Record<string, unknown> | null {
+  // First, try to extract JSON from within code fences (handles text before/after)
+  const codeBlockMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (codeBlockMatch) {
+    try {
+      const parsed = JSON.parse(codeBlockMatch[1].trim());
+      if (typeof parsed !== 'object' || parsed === null) return null;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const first = parsed[0];
+        return typeof first === 'object' && first !== null && !Array.isArray(first) ? (first as Record<string, unknown>) : null;
+      }
+      return !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      // Fall through to try parsing the whole string
+    }
+  }
+
+  // Second, try to find JSON object or array anywhere in the text
+  const jsonMatch = raw.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[1]);
+      if (typeof parsed !== 'object' || parsed === null) return null;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const first = parsed[0];
+        return typeof first === 'object' && first !== null && !Array.isArray(first) ? (first as Record<string, unknown>) : null;
+      }
+      return !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      // Fall through
+    }
+  }
+
+  // Third, try parsing the whole string after basic cleanup
   const trimmed = raw.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
   try {
     const parsed = JSON.parse(trimmed);
