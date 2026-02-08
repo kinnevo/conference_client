@@ -33,6 +33,7 @@ export function SparkBridgeLogo({
         width={logoHeight}
         height={logoHeight}
         className="flex-shrink-0 object-contain"
+        style={{ width: 'auto', height: logoHeight }}
         priority
       />
       {showText && (

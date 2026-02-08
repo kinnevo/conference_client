@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth-provider';
 import { useSignalValidator } from '@/hooks/useSignalValidator';
@@ -10,6 +10,8 @@ import {
   Plus,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Save,
   Trash2,
   CheckCircle,
@@ -64,6 +66,70 @@ export default function SignalValidatorPage() {
     clearForm,
     syncStatus
   } = useSignalValidator();
+
+  // State for detailed analysis collapsible section
+  const [isDetailedAnalysisExpanded, setIsDetailedAnalysisExpanded] = useState(false);
+
+  // Helper function to extract DNA analysis from raw response
+  const getDnaAnalysis = (rawResponse: string): string | null => {
+    try {
+      // Try to parse the raw response as JSON
+      const cleaned = rawResponse.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+      const parsed = JSON.parse(cleaned);
+      const dna = parsed.dna_analysis;
+
+      if (!dna) return null;
+
+      // If dna_analysis is a string, return it as-is
+      if (typeof dna === 'string') return dna;
+
+      // If it's an object, format it nicely
+      if (typeof dna === 'object' && dna !== null) {
+        const parts: string[] = [];
+
+        const formatField = (label: string, field: any) => {
+          if (!field) return null;
+
+          // If field is a simple string, return it
+          if (typeof field === 'string') {
+            return `${label}: ${field}`;
+          }
+
+          // If field is an object with nested properties
+          if (typeof field === 'object' && field !== null) {
+            const lines: string[] = [`${label}:`];
+            if (field.content) lines.push(`  Content: ${field.content}`);
+            if (field.score !== undefined) lines.push(`  Score: ${field.score}`);
+            if (field.reasoning) lines.push(`  Reasoning: ${field.reasoning}`);
+            if (field.status) lines.push(`  Status: ${field.status}`);
+            return lines.join('\n');
+          }
+
+          return null;
+        };
+
+        const actorText = formatField('Actor', dna.actor);
+        const contextText = formatField('Context', dna.context);
+        const frictionText = formatField('Friction', dna.friction);
+        const evidenceText = formatField('Evidence', dna.evidence);
+        const impactText = formatField('Impact', dna.impact);
+
+        if (actorText) parts.push(actorText);
+        if (contextText) parts.push(contextText);
+        if (frictionText) parts.push(frictionText);
+        if (evidenceText) parts.push(evidenceText);
+        if (impactText) parts.push(impactText);
+
+        return parts.length > 0 ? parts.join('\n\n') : null;
+      }
+
+      return null;
+    } catch {
+      // If parsing fails, try to find DNA analysis in the text
+      const match = rawResponse.match(/"dna_analysis"\s*:\s*"([^"]+)"/);
+      return match ? match[1] : null;
+    }
+  };
 
   useEffect(() => {
     if (authLoading) return;
@@ -435,6 +501,32 @@ export default function SignalValidatorPage() {
                   <CardContent>
                     <p className="text-green-800">{currentValidationResult.improvedVersion}</p>
                   </CardContent>
+                </Card>
+              )}
+
+              {/* Detailed Analysis (DNA Analysis) - Collapsible */}
+              {getDnaAnalysis(currentValidationResult.rawResponse) && (
+                <Card className="border-purple-200 bg-purple-50">
+                  <CardHeader
+                    className="cursor-pointer hover:bg-purple-100 transition-colors"
+                    onClick={() => setIsDetailedAnalysisExpanded(!isDetailedAnalysisExpanded)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-purple-900">Detailed Analysis</CardTitle>
+                      {isDetailedAnalysisExpanded ? (
+                        <ChevronUp className="h-5 w-5 text-purple-700" />
+                      ) : (
+                        <ChevronDown className="h-5 w-5 text-purple-700" />
+                      )}
+                    </div>
+                  </CardHeader>
+                  {isDetailedAnalysisExpanded && (
+                    <CardContent>
+                      <p className="text-purple-800 whitespace-pre-wrap">
+                        {getDnaAnalysis(currentValidationResult.rawResponse)}
+                      </p>
+                    </CardContent>
+                  )}
                 </Card>
               )}
             </div>

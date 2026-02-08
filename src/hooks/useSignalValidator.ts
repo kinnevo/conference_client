@@ -188,7 +188,10 @@ export function useSignalValidator(): UseSignalValidatorReturn {
       validationResult: currentValidationResult
     })
       .then(() => setSyncStatus('success'))
-      .catch(() => setSyncStatus('error'));
+      .catch((error) => {
+        console.error('Save signal failed:', error.response?.data || error.message);
+        setSyncStatus('error');
+      });
   }, [currentValidationResult, description, fieldOfInterest, user]);
 
   const updateSignal = useCallback(() => {
@@ -221,7 +224,10 @@ export function useSignalValidator(): UseSignalValidatorReturn {
       validationResult: currentValidationResult
     })
       .then(() => setSyncStatus('success'))
-      .catch(() => setSyncStatus('error'));
+      .catch((error) => {
+        console.error('Update signal failed:', error.response?.data || error.message);
+        setSyncStatus('error');
+      });
   }, [activeSignalId, currentValidationResult, description, fieldOfInterest]);
 
   const deleteSignal = useCallback((id: string) => {
@@ -235,7 +241,10 @@ export function useSignalValidator(): UseSignalValidatorReturn {
     setSyncStatus('pending');
     api.delete(`/api/signals/${id}`)
       .then(() => setSyncStatus('success'))
-      .catch(() => setSyncStatus('error'));
+      .catch((error) => {
+        console.error('Delete signal failed:', error.response?.data || error.message);
+        setSyncStatus('error');
+      });
   }, [activeSignalId]);
 
   const loadSignal = useCallback((signal: SignalCard) => {

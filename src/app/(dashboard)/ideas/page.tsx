@@ -79,6 +79,53 @@ function labelForKey(key: string): string {
   return LABELS[key] ?? key.replace(/([A-Z_])/g, ' $1').replace(/^./, (s) => s.toUpperCase()).trim();
 }
 
+/** Decode escape sequences in strings (e.g., \n to actual newline) */
+function decodeEscapeSequences(str: string): string {
+  return str
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '\r')
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'")
+    .replace(/\\\\/g, '\\');
+}
+
+/** Truncate string at word boundary, not mid-word */
+function smartTruncate(str: string, maxLength: number): string {
+  if (str.length <= maxLength) return str;
+
+  // Find the last space before maxLength
+  const truncated = str.slice(0, maxLength);
+  const lastSpace = truncated.lastIndexOf(' ');
+
+  // If there's a space, cut there; otherwise cut at maxLength
+  if (lastSpace > 0) {
+    return truncated.slice(0, lastSpace) + '…';
+  }
+  return truncated + '…';
+}
+
+/** Recursively extract first meaningful string from nested objects */
+function extractStringFromNestedObject(obj: unknown): string | null {
+  if (typeof obj === 'string' && obj.trim()) {
+    return obj.trim();
+  }
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const result = extractStringFromNestedObject(item);
+      if (result) return result;
+    }
+  }
+  if (typeof obj === 'object' && obj !== null) {
+    const values = Object.values(obj);
+    for (const val of values) {
+      const result = extractStringFromNestedObject(val);
+      if (result) return result;
+    }
+  }
+  return null;
+}
+
 /** Human-readable summary for card (never raw JSON). */
 function getCoreConcept(content: string): string {
   const obj = getContentObject(content);
@@ -95,8 +142,24 @@ function getCoreConcept(content: string): string {
     const keys = Object.keys(obj).slice(0, 2);
     const parts = keys.map((k) => {
       const v = (obj as Record<string, unknown>)[k];
-      const str = typeof v === 'string' ? v : Array.isArray(v) ? (v[0] != null ? String(v[0]) : '') : String(v);
-      return `${labelForKey(k)}: ${str.slice(0, 50)}`;
+      let str = '';
+      if (typeof v === 'string') {
+        str = decodeEscapeSequences(v);
+      } else if (Array.isArray(v)) {
+        // Handle arrays - extract meaningful text from each item
+        const items = v.map(item => {
+          const extracted = extractStringFromNestedObject(item);
+          return extracted ? decodeEscapeSequences(extracted) : String(item);
+        }).filter(Boolean);
+        str = items.join(', ');
+      } else if (typeof v === 'object' && v !== null) {
+        // Extract meaningful text from nested objects recursively
+        const extracted = extractStringFromNestedObject(v);
+        str = extracted ? decodeEscapeSequences(extracted) : smartTruncate(JSON.stringify(v), 200);
+      } else {
+        str = String(v);
+      }
+      return `${labelForKey(k)}: ${smartTruncate(str, 200)}`;
     }).filter(Boolean);
     return parts.join(' · ') || 'Idea';
   }
@@ -139,23 +202,82 @@ function ideaToPlainText(idea: Idea): string {
   return `Idea\nCreated: ${date}\n\nYour input\n${idea.idea_input}\n\nAI result\n${resultToPlainText(idea.result)}`;
 }
 
-function exportIdeaAsPdf(idea: Idea): void {
+async function exportIdeaAsPdf(idea: Idea): Promise<void> {
   const text = ideaToPlainText(idea);
   const doc = new jsPDF({ format: 'a4', unit: 'mm' });
   const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
   const margin = 20;
   const maxW = pageW - margin * 2;
   const lineHeight = 6;
+  const headerHeight = 25;
+  const footerHeight = 15;
+
+  // Load logo image
+  let logoData: string | null = null;
+  try {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          logoData = canvas.toDataURL('image/png');
+        }
+        resolve();
+      };
+      img.onerror = () => resolve(); // Continue without logo if it fails to load
+      img.src = '/logo.png';
+    });
+  } catch (error) {
+    console.warn('Failed to load logo for PDF:', error);
+  }
+
+  // Add header with logo and title
+  const addHeader = () => {
+    // Add logo on the left if available
+    if (logoData) {
+      doc.addImage(logoData, 'PNG', margin, 8, 12, 12);
+    }
+    // Add title centered
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('SparkBridges', pageW / 2, 15, { align: 'center' });
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+  };
+
+  // Add footer with email
+  const addFooter = (pageNum: number) => {
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    doc.text('community@latteware.io', pageW / 2, pageH - 10, { align: 'center' });
+    doc.setTextColor(0);
+  };
+
   const lines = doc.splitTextToSize(text, maxW);
-  let y = margin;
+  let y = margin + headerHeight;
+  let pageNum = 1;
+
+  addHeader();
+
   for (const line of lines) {
-    if (y > 270) {
+    if (y > pageH - footerHeight - margin) {
+      addFooter(pageNum);
       doc.addPage();
-      y = margin;
+      pageNum++;
+      addHeader();
+      y = margin + headerHeight;
     }
     doc.text(line, margin, y);
     y += lineHeight;
   }
+
+  addFooter(pageNum);
   doc.save(`idea-${idea.id.slice(0, 8)}-${new Date(idea.created_at).toISOString().slice(0, 10)}.pdf`);
 }
 
