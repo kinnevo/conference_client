@@ -46,9 +46,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Area, Prompt, LLMProvider, LLMTestResult } from '@/types';
-import { getSignalSourceMode, setSignalSourceMode, type SignalSourceMode } from '@/lib/session';
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+// Signal source mode type
+type SignalSourceMode = 'live' | 'demo';
 
 const TAB_AREAS = 'areas';
 const TAB_SIGNALS = 'signals';
@@ -93,18 +95,47 @@ export default function SettingsPage() {
   const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
   const [signalDetailForDialog, setSignalDetailForDialog] = useState<SignalRow | null>(null);
   const [signalSourceMode, setSignalSourceModeState] = useState<SignalSourceMode>('live');
+  const [isLoadingMode, setIsLoadingMode] = useState(true);
+  const [isSavingMode, setIsSavingMode] = useState(false);
+  const [modeError, setModeError] = useState('');
   const [showClearClustersDialog, setShowClearClustersDialog] = useState(false);
   const [clearClustersConfirm, setClearClustersConfirm] = useState('');
   const [isClearingClusters, setIsClearingClusters] = useState(false);
   const [clearClustersError, setClearClustersError] = useState('');
+
+  // Fetch global signal source mode on mount
   useEffect(() => {
-    setSignalSourceModeState(getSignalSourceMode());
+    async function fetchSignalSourceMode() {
+      try {
+        setIsLoadingMode(true);
+        const { data } = await api.get<{ mode: SignalSourceMode }>('/api/admin/signal-source-mode');
+        setSignalSourceModeState(data.mode);
+        setModeError('');
+      } catch (err: any) {
+        console.error('Failed to fetch signal source mode:', err);
+        setModeError('Failed to load signal source mode');
+        // Default to 'live' on error
+        setSignalSourceModeState('live');
+      } finally {
+        setIsLoadingMode(false);
+      }
+    }
+    fetchSignalSourceMode();
   }, []);
 
-  function handleSignalSourceModeChange(mode: SignalSourceMode) {
-    setSignalSourceMode(mode);
-    setSignalSourceModeState(mode);
-    refetchSignals();
+  async function handleSignalSourceModeChange(mode: SignalSourceMode) {
+    try {
+      setIsSavingMode(true);
+      setModeError('');
+      await api.post('/api/admin/signal-source-mode', { mode });
+      setSignalSourceModeState(mode);
+      refetchSignals();
+    } catch (err: any) {
+      console.error('Failed to update signal source mode:', err);
+      setModeError(err.response?.data?.error || 'Failed to update signal source mode');
+    } finally {
+      setIsSavingMode(false);
+    }
   }
 
   async function handleClearClustersConfirm() {

@@ -60,6 +60,7 @@ interface UseSignalValidatorReturn {
   deleteSignal: (id: string) => void;
   loadSignal: (signal: SignalCard) => void;
   clearForm: () => void;
+  refetchSignals: () => Promise<void>;
 }
 
 export function useSignalValidator(): UseSignalValidatorReturn {
@@ -88,38 +89,66 @@ export function useSignalValidator(): UseSignalValidatorReturn {
     return () => clearTimeout(timer);
   }, [syncStatus]);
 
-  // Load from sessionStorage on mount (per-tab; cleared on login so each session starts fresh)
+  // Load signals from server on mount (respects demo/live mode)
   useEffect(() => {
-    const storage = getStorage();
-    const savedSignals = storage.getItem(STORAGE_KEY_SIGNALS);
-    if (savedSignals) {
+    const loadSignalsFromServer = async () => {
       try {
-        const parsed = JSON.parse(savedSignals);
-        setSignals(parsed.map((s: SignalCard) => ({
-          ...s,
-          createdAt: new Date(s.createdAt)
-        })));
-      } catch (e) {
-        console.error('Failed to parse saved signals:', e);
-      }
-    }
+        // Fetch signals from server (mode header automatically added by api interceptor)
+        const { data } = await api.get<any[]>('/api/signals');
 
-    const savedSession = storage.getItem(STORAGE_KEY_SESSION);
-    if (savedSession) {
-      try {
-        const session = JSON.parse(savedSession);
-        if (session.fieldOfInterest) setFieldOfInterest(session.fieldOfInterest);
-        if (session.description) setDescription(session.description);
-        if (session.activeSignalId) setActiveSignalId(session.activeSignalId);
-        if (isValidResult(session.currentValidationResult)) {
-          setCurrentValidationResult(session.currentValidationResult);
+        // Convert server signals to SignalCard format
+        const serverSignals: SignalCard[] = data.map((s: any) => ({
+          id: s.id,
+          title: s.title || '',
+          description: s.description || '',
+          fieldOfInterest: s.field_of_interest || '',
+          userId: s.user_id,
+          qualificationLevel: s.qualification_level as 'valid' | 'weak' | 'not-a-signal',
+          validationResult: s.validation_result,
+          createdAt: new Date(s.created_at)
+        }));
+
+        setSignals(serverSignals);
+      } catch (error) {
+        console.error('Failed to load signals from server:', error);
+
+        // Fallback to sessionStorage if server fetch fails
+        const storage = getStorage();
+        const savedSignals = storage.getItem(STORAGE_KEY_SIGNALS);
+        if (savedSignals) {
+          try {
+            const parsed = JSON.parse(savedSignals);
+            setSignals(parsed.map((s: SignalCard) => ({
+              ...s,
+              createdAt: new Date(s.createdAt)
+            })));
+          } catch (e) {
+            console.error('Failed to parse saved signals:', e);
+          }
         }
-      } catch (e) {
-        storage.removeItem(STORAGE_KEY_SESSION);
       }
-    }
 
-    setHasRestored(true);
+      // Restore session state from sessionStorage
+      const storage = getStorage();
+      const savedSession = storage.getItem(STORAGE_KEY_SESSION);
+      if (savedSession) {
+        try {
+          const session = JSON.parse(savedSession);
+          if (session.fieldOfInterest) setFieldOfInterest(session.fieldOfInterest);
+          if (session.description) setDescription(session.description);
+          if (session.activeSignalId) setActiveSignalId(session.activeSignalId);
+          if (isValidResult(session.currentValidationResult)) {
+            setCurrentValidationResult(session.currentValidationResult);
+          }
+        } catch (e) {
+          storage.removeItem(STORAGE_KEY_SESSION);
+        }
+      }
+
+      setHasRestored(true);
+    };
+
+    loadSignalsFromServer();
   }, []);
 
   // Save signals to sessionStorage when they change (per-tab)
@@ -263,6 +292,25 @@ export function useSignalValidator(): UseSignalValidatorReturn {
     setHistoryIndex(0);
   }, []);
 
+  const refetchSignals = useCallback(async () => {
+    try {
+      const { data } = await api.get<any[]>('/api/signals');
+      const serverSignals: SignalCard[] = data.map((s: any) => ({
+        id: s.id,
+        title: s.title || '',
+        description: s.description || '',
+        fieldOfInterest: s.field_of_interest || '',
+        userId: s.user_id,
+        qualificationLevel: s.qualification_level as 'valid' | 'weak' | 'not-a-signal',
+        validationResult: s.validation_result,
+        createdAt: new Date(s.created_at)
+      }));
+      setSignals(serverSignals);
+    } catch (error) {
+      console.error('Failed to refetch signals:', error);
+    }
+  }, []);
+
   return {
     // Application State
     signals,
@@ -291,6 +339,7 @@ export function useSignalValidator(): UseSignalValidatorReturn {
     updateSignal,
     deleteSignal,
     loadSignal,
-    clearForm
+    clearForm,
+    refetchSignals
   };
 }

@@ -171,17 +171,75 @@ function getCoreConcept(content: string): string {
   return content.length > 150 ? content.slice(0, 150).trim() + '…' : content;
 }
 
-function valueToPlainText(value: unknown): string {
+function valueToPlainText(value: unknown, indent: string = ''): string {
   if (value == null) return '—';
-  if (typeof value === 'string') return value;
+  if (typeof value === 'string') return decodeEscapeSequences(value);
+
   if (Array.isArray(value)) {
-    return value.map((item) => (typeof item === 'object' && item !== null ? JSON.stringify(item) : String(item))).join('\n• ');
+    // Handle arrays - format each item nicely
+    return value.map((item, index) => {
+      if (typeof item === 'object' && item !== null) {
+        // For objects in arrays, format as indented key-value pairs
+        const entries = Object.entries(item as Record<string, unknown>);
+        if (entries.length === 0) return '';
+
+        // If object has a simple structure, show inline
+        if (entries.length === 1) {
+          const [k, v] = entries[0];
+          return `${index + 1}. ${labelForKey(k)}: ${valueToPlainText(v, indent + '  ')}`;
+        }
+
+        // Multi-field objects: extract title and show numbered with title
+        const obj = item as Record<string, unknown>;
+        const titleKey = entries.find(([k]) =>
+          k.toLowerCase().includes('title') ||
+          k.toLowerCase().includes('name') ||
+          k.toLowerCase().includes('step') ||
+          k === 'summary'
+        )?.[0];
+
+        const titleText = titleKey ? String(obj[titleKey]) : '';
+        const remainingEntries = entries.filter(([k]) => k !== titleKey);
+
+        if (titleText && remainingEntries.length > 0) {
+          // Show title without number, then remaining fields indented
+          const itemLines = remainingEntries
+            .map(([k, v]) => `${indent}  ${labelForKey(k)}: ${valueToPlainText(v, indent + '    ')}`)
+            .join('\n');
+          return `${decodeEscapeSequences(titleText)}\n${itemLines}`;
+        } else if (titleText) {
+          // Only title, show it without number
+          return `${decodeEscapeSequences(titleText)}`;
+        } else {
+          // No title found, show all fields indented without number
+          const itemLines = entries
+            .map(([k, v]) => `${indent}  ${labelForKey(k)}: ${valueToPlainText(v, indent + '    ')}`)
+            .join('\n');
+          return itemLines;
+        }
+      }
+      return `- ${decodeEscapeSequences(String(item))}`;
+    }).filter(Boolean).join('\n');
   }
+
   if (typeof value === 'object') {
-    return Object.entries(value as Record<string, unknown>)
-      .map(([k, v]) => `${labelForKey(k)}: ${valueToPlainText(v)}`)
-      .join('\n');
+    // Handle nested objects
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return '—';
+
+    return entries
+      .map(([k, v]) => {
+        const label = labelForKey(k);
+        const val = valueToPlainText(v, indent + '  ');
+        // If the value is multiline, put it on the next line with indentation
+        if (val.includes('\n')) {
+          return `${label}:\n${indent}  ${val.split('\n').join('\n' + indent + '  ')}`;
+        }
+        return `${label}: ${val}`;
+      })
+      .join('\n' + indent);
   }
+
   return String(value);
 }
 
@@ -199,7 +257,8 @@ function resultToPlainText(raw: string): string {
 /** Full idea as plain text for PDF export. */
 function ideaToPlainText(idea: Idea): string {
   const date = new Date(idea.created_at).toLocaleString();
-  return `Idea\nCreated: ${date}\n\nYour input\n${idea.idea_input}\n\nAI result\n${resultToPlainText(idea.result)}`;
+  const authorName = [idea.first_name, idea.last_name].filter(Boolean).join(' ') || 'Unknown';
+  return `Idea\nCreated: ${date}\nAuthor: ${authorName}\n\nYour input\n${idea.idea_input}\n\nAI result\n${resultToPlainText(idea.result)}`;
 }
 
 async function exportIdeaAsPdf(idea: Idea): Promise<void> {
@@ -403,8 +462,13 @@ export default function IdeasPage() {
                     <CardTitle className="text-base line-clamp-2">
                       {idea.idea_input.slice(0, 80)}{idea.idea_input.length > 80 ? '…' : ''}
                     </CardTitle>
-                    <CardDescription className="text-xs">
-                      {new Date(idea.created_at).toLocaleDateString()}
+                    <CardDescription className="text-xs space-y-1">
+                      <div>{new Date(idea.created_at).toLocaleDateString()}</div>
+                      {(idea.first_name || idea.last_name) && (
+                        <div className="text-gray-500">
+                          By {[idea.first_name, idea.last_name].filter(Boolean).join(' ')}
+                        </div>
+                      )}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -423,8 +487,13 @@ export default function IdeasPage() {
           <DialogHeader className="p-6 border-b shrink-0 flex flex-row items-start justify-between gap-4">
             <div>
               <DialogTitle>Idea</DialogTitle>
-              <DialogDescription>
-                {selectedIdea ? new Date(selectedIdea.created_at).toLocaleString() : ''}
+              <DialogDescription className="space-y-1">
+                <div>{selectedIdea ? new Date(selectedIdea.created_at).toLocaleString() : ''}</div>
+                {selectedIdea && (selectedIdea.first_name || selectedIdea.last_name) && (
+                  <div>
+                    By {[selectedIdea.first_name, selectedIdea.last_name].filter(Boolean).join(' ')}
+                  </div>
+                )}
               </DialogDescription>
             </div>
             {selectedIdea && (

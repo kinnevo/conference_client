@@ -11,6 +11,10 @@ export interface Idea {
   result: string;
   created_at: string;
   updated_at: string;
+  // Joined from profiles
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
 }
 
 export function useIdeas(options?: { opportunityId?: string | null; enabled?: boolean }) {

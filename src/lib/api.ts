@@ -5,7 +5,6 @@ import {
   setAccessToken,
   setRefreshToken,
   clearSession,
-  getSignalSourceMode,
 } from './session';
 
 const api = axios.create({
@@ -15,15 +14,13 @@ const api = axios.create({
   },
 });
 
-// Request interceptor - attach access token and signal source mode
+// Request interceptor - attach access token
+// Note: All users now use the 'live' signals table to ensure consistency across all users
 api.interceptors.request.use(
   (config) => {
     const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-    }
-    if (config.url?.includes('/api/signals')) {
-      config.headers['X-Signals-Mode'] = getSignalSourceMode();
     }
     return config;
   },
